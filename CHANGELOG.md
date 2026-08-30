@@ -104,6 +104,20 @@ All notable changes to SNChat will be documented in this file.
 - ⚠️ Google paths are dormant: the API appears closed to new projects, so they
   are complete but unverified against a live response
 
+**Added (2026-08-30 - Phase 2 completion)**
+- ✅ Full-text search across conversation message bodies, with match snippets
+- ✅ Copy button on every fenced code block
+- ✅ Per-message "Copy" and "Copy code" actions, shown on hover
+- ✅ Keyboard shortcuts: Ctrl+N (new conversation), Ctrl+F (focus search)
+
+**Fixed**
+- Mouse wheel did not scroll the chat; each message's MarkdownViewer contains
+  its own ScrollViewer which consumed the bubbling event. Handled via the
+  tunnelling PreviewMouseWheel on the outer list instead.
+
+**Deferred**
+- App icon: still the stock WPF icon, needs a supplied image
+
 **Optional/Future Enhancements**
 - [ ] Enhanced code syntax highlighting with AvalonEdit
 - [ ] Full-text conversation search across all messages

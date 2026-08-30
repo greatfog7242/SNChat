@@ -1,10 +1,10 @@
 # SNChat Implementation Status
 
-**Last Updated**: 2026-08-30 17:35 UTC  
-**Current Phase**: Phase 2 - Enhanced UI & Multiple Providers  
+**Last Updated**: 2026-08-30 19:10 UTC  
 **Phase 1 Status**: ✅ COMPLETE  
-**Phase 2 Status**: 🎉 85% Complete - Nearly Done!  
+**Phase 2 Status**: ✅ COMPLETE (app icon deferred)  
 **Bonus**: Tool calling with web + image search (unplanned, delivered early)  
+**Next**: Phase 3, Phase 5 (RAG - blocked on Ollama embeddings), or hardening  
 **Repository**: https://github.com/greatfog7242/SNChat
 
 ## Completed Work
@@ -313,7 +313,35 @@ in the streaming overlay (status chunks are shown but never persisted).
   `ToolCall.cs`, `ToolParameterSchema.cs`
 - `SNChat.WebTools/WebSearchTool.cs`, `ImageSearchTool.cs`, `ImageUrl.cs`
 
+**Tasks #4, #7, #8**: Phase 2 completion ✅
+- Full-text conversation search across message bodies, not just titles, with a
+  context snippet showing where the hit is. Message text is flattened and
+  lower-cased once at load so filtering stays a substring scan.
+- Copy buttons: one per fenced code block, plus per-message "Copy" and
+  "Copy code". Clipboard writes are guarded - Clipboard.SetText throws when
+  another process holds the clipboard.
+- Keyboard shortcuts: Ctrl+N (new conversation), Ctrl+F (focus search),
+  registered in code-behind because the window has no view model of its own.
+- Deferred: app icon (still the stock WPF icon; needs a supplied .ico or PNG).
+
 ### Non-obvious findings (worth not rediscovering)
+
+**Nested scroll viewers block the mouse wheel.** Every message renders a
+MarkdownViewer, which contains its own FlowDocumentScrollViewer > ScrollViewer.
+That inner scroller marks the bubbling MouseWheel event handled, so the message
+list never scrolled. Fixed by handling the tunnelling PreviewMouseWheel on the
+outer list, which fires first. Verified A/B: outer offset stayed 0 without the
+fix and moved 240 with it. The same trap is why generated code blocks wrap
+instead of scrolling horizontally.
+
+**Code blocks have no renderer hook, but the document is reachable.** Markdig
+emits a fenced block as a plain Paragraph with no marker, so buttons cannot be
+attached during rendering. MarkdownViewer.Document is a public settable
+DependencyProperty, so CodeBlockCopyBehavior watches it and rewrites each code
+paragraph in place. Post-processing rather than replacing the pipeline keeps
+Markdig's own image and hyperlink styling applied. Code paragraphs are
+identified by having a monospace FontFamily AND a non-null Style; prose has
+neither.
 
 **Markdig.Wpf silently fails on percent-encoded image URLs.** Any `%XX` escape in
 the path yields a zero-sized image with no exception and no log entry - even

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Input;
 using System.Windows.Navigation;
 using Microsoft.Extensions.DependencyInjection;
 using SNChat.App.ViewModels;
@@ -67,6 +68,21 @@ public partial class ChatView : UserControl
                 MessageScrollViewer.ScrollToBottom();
             });
         };
+    }
+
+    /// <summary>
+    /// Every rendered message contains a MarkdownViewer, which wraps its own
+    /// FlowDocumentScrollViewer. That inner scroller marks the bubbling wheel
+    /// event handled, so the message list never receives it and the page appears
+    /// frozen. Handling the tunnelling Preview event instead lets the outer list
+    /// scroll first, which is what the wheel should do here.
+    /// </summary>
+    private void MessageScrollViewer_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        MessageScrollViewer.ScrollToVerticalOffset(
+            MessageScrollViewer.VerticalOffset - e.Delta);
+
+        e.Handled = true;
     }
 
     private void SettingsButton_Click(object sender, RoutedEventArgs e)

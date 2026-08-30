@@ -50,7 +50,8 @@
 
         <!-- Search -->
         <Border Grid.Row="1" Background="White" BorderBrush="#E0E0E0" BorderThickness="0,0,0,1" Padding="12,8">
-            <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+            <TextBox x:Name="SearchBox"
+                     Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
                      FontSize="13"
                      Padding="8,6"
                      BorderBrush="#CCCCCC"
@@ -64,7 +65,7 @@
                                     <Setter.Value>
                                         <VisualBrush Stretch="None" AlignmentX="Left">
                                             <VisualBrush.Visual>
-                                                <TextBlock Text="Search conversations..."
+                                                <TextBlock Text="Search titles and messages (Ctrl+F)"
                                                           Foreground="#999999"
                                                           FontSize="13"
                                                           Margin="8,0,0,0"/>
@@ -102,6 +103,7 @@
 
                                             <Grid>
                                                 <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto"/>
                                                     <RowDefinition Height="Auto"/>
                                                     <RowDefinition Height="Auto"/>
                                                     <RowDefinition Height="Auto"/>
@@ -145,15 +147,30 @@
                                                     </Button.Style>
                                                 </Button>
 
+                                                <!-- Match snippet, shown only while searching -->
+                                                <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                                                        Background="#FFF9E6"
+                                                        Padding="6,4"
+                                                        CornerRadius="3"
+                                                        Margin="0,0,0,4"
+                                                        Visibility="{Binding HasMatchSnippet, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                    <TextBlock Text="{Binding MatchSnippet}"
+                                                              FontSize="11"
+                                                              Foreground="#5A4A00"
+                                                              TextWrapping="Wrap"
+                                                              MaxHeight="48"
+                                                              TextTrimming="CharacterEllipsis"/>
+                                                </Border>
+
                                                 <!-- Summary -->
-                                                <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                                                <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
                                                           Text="{Binding Summary}"
                                                           FontSize="11"
                                                           Foreground="#666666"
                                                           Margin="0,0,0,2"/>
 
                                                 <!-- Updated Time -->
-                                                <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
+                                                <TextBlock Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2"
                                                           Text="{Binding UpdatedAtDisplay}"
                                                           FontSize="10"
                                                           Foreground="#999999"/>

@@ -1,4 +1,6 @@
 ﻿using System.Windows;
+using System.Windows.Input;
+using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.DependencyInjection;
 using SNChat.App.ViewModels;
 using SNChat.App.Views;
@@ -32,6 +34,31 @@ public partial class MainWindow : Window
         // Wire up conversation selection
         _conversationListViewModel.ConversationSelected += OnConversationSelected;
         _chatViewModel.ConversationSaved += OnConversationSaved;
+
+        RegisterShortcuts();
+    }
+
+    /// <summary>
+    /// Bound in code rather than XAML because the window itself has no view
+    /// model; each pane carries its own DataContext.
+    /// </summary>
+    private void RegisterShortcuts()
+    {
+        InputBindings.Add(new KeyBinding(
+            new RelayCommand(() => _chatViewModel.NewConversationCommand.Execute(null)),
+            Key.N, ModifierKeys.Control));
+
+        InputBindings.Add(new KeyBinding(
+            new RelayCommand(FocusConversationSearch),
+            Key.F, ModifierKeys.Control));
+    }
+
+    private void FocusConversationSearch()
+    {
+        // The control is found by name because the chat pane is swapped at
+        // construction, leaving the sidebar as the stable reference.
+        if (ConversationListControl is Views.ConversationListView list)
+            list.FocusSearch();
     }
 
     private void OnConversationSelected(object? sender, Core.Models.Conversation conversation)

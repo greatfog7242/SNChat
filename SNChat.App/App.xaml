@@ -6,5 +6,6 @@
     <Application.Resources>
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
         <converters:InverseBooleanConverter x:Key="InverseBooleanConverter"/>
+        <converters:HasCodeBlocksConverter x:Key="HasCodeBlocksConverter"/>
     </Application.Resources>
 </Application>

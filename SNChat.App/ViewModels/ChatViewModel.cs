@@ -164,6 +164,47 @@ public partial class ChatViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private void CopyMessage(Message? message)
+    {
+        if (message == null)
+            return;
+
+        TrySetClipboard(message.Content, "Message copied");
+    }
+
+    [RelayCommand]
+    private void CopyCode(Message? message)
+    {
+        if (message == null)
+            return;
+
+        var code = MarkdownCode.ExtractBlocks(message.Content);
+        if (string.IsNullOrEmpty(code))
+            return;
+
+        TrySetClipboard(code, "Code copied");
+    }
+
+    /// <summary>
+    /// The clipboard is held by other processes often enough that Copy throws;
+    /// a failed copy should not surface as an unhandled exception.
+    /// </summary>
+    private void TrySetClipboard(string text, string what)
+    {
+        try
+        {
+            Clipboard.SetText(text);
+            _logger.LogDebug("{What} ({Length} chars)", what, text.Length);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not write to the clipboard");
+            MessageBox.Show("Could not access the clipboard. Another application may be using it.",
+                "Copy failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    [RelayCommand]
     private void CancelGeneration()
     {
         _cancellationTokenSource?.Cancel();

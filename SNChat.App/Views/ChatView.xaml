@@ -6,6 +6,7 @@
              xmlns:local="clr-namespace:SNChat.App.Views"
              xmlns:viewmodels="clr-namespace:SNChat.App.ViewModels"
              xmlns:markdig="clr-namespace:Markdig.Wpf;assembly=Markdig.Wpf"
+             xmlns:behaviors="clr-namespace:SNChat.App.Behaviors"
              mc:Ignorable="d"
              d:DesignHeight="600" d:DesignWidth="800"
              d:DataContext="{d:DesignInstance Type=viewmodels:ChatViewModel}">
@@ -89,8 +90,45 @@
                                            FontSize="14"
                                            FontFamily="Segoe UI"
                                            Foreground="#333333"
-                                           Background="Transparent"/>
-                    <TextBlock Text="{Binding Timestamp, StringFormat='HH:mm:ss'}" FontSize="10" Opacity="0.5" Margin="0,4,0,0"/>
+                                           Background="Transparent"
+                                           behaviors:CodeBlockCopyBehavior.Enabled="True"/>
+
+                    <!-- Footer: timestamp plus copy actions revealed on hover -->
+                    <Grid Margin="0,4,0,0">
+                        <TextBlock Text="{Binding Timestamp, StringFormat='HH:mm:ss'}"
+                                   FontSize="10" Opacity="0.5" VerticalAlignment="Center"/>
+
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <StackPanel.Style>
+                                <Style TargetType="StackPanel">
+                                    <Setter Property="Opacity" Value="0"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Border}}" Value="True">
+                                            <Setter Property="Opacity" Value="1"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </StackPanel.Style>
+
+                            <Button Content="Copy code"
+                                    FontSize="10"
+                                    Padding="6,2"
+                                    Margin="0,0,6,0"
+                                    Cursor="Hand"
+                                    ToolTip="Copy just the code blocks from this message"
+                                    Visibility="{Binding Content, Converter={StaticResource HasCodeBlocksConverter}}"
+                                    Command="{Binding DataContext.CopyCodeCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="{Binding}"/>
+
+                            <Button Content="Copy"
+                                    FontSize="10"
+                                    Padding="6,2"
+                                    Cursor="Hand"
+                                    ToolTip="Copy the whole message"
+                                    Command="{Binding DataContext.CopyMessageCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="{Binding}"/>
+                        </StackPanel>
+                    </Grid>
                 </StackPanel>
             </Border>
         </DataTemplate>
@@ -110,7 +148,8 @@
                     <Button Content="New Conversation"
                             Command="{Binding NewConversationCommand}"
                             Padding="10,5"
-                            Margin="0,0,10,0"/>
+                            Margin="0,0,10,0"
+                            ToolTip="Start a new conversation (Ctrl+N)"/>
                     <Button Content="Cancel"
                             Command="{Binding CancelGenerationCommand}"
                             Padding="10,5"
@@ -159,7 +198,8 @@
                       HorizontalScrollBarVisibility="Disabled"
                       Padding="10"
                       Background="White"
-                      x:Name="MessageScrollViewer">
+                      x:Name="MessageScrollViewer"
+                      PreviewMouseWheel="MessageScrollViewer_PreviewMouseWheel">
             <ItemsControl ItemsSource="{Binding Messages}"
                           ItemTemplate="{StaticResource MessageTemplate}">
                 <ItemsControl.ItemsPanel>

@@ -14,4 +14,11 @@ public partial class ConversationListView : UserControl
     {
         DataContext = viewModel;
     }
+
+    /// <summary>Puts the caret in the search box and selects any existing term.</summary>
+    public void FocusSearch()
+    {
+        SearchBox.Focus();
+        SearchBox.SelectAll();
+    }
 }
