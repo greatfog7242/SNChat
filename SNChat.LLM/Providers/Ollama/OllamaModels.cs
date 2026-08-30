@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace SNChat.LLM.Providers.Ollama;
@@ -16,6 +17,10 @@ public class OllamaChatRequest
 
     [JsonPropertyName("options")]
     public OllamaOptions? Options { get; set; }
+
+    [JsonPropertyName("tools")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<OllamaTool>? Tools { get; set; }
 }
 
 public class OllamaMessage
@@ -25,6 +30,59 @@ public class OllamaMessage
 
     [JsonPropertyName("content")]
     public string Content { get; set; } = string.Empty;
+
+    [JsonPropertyName("tool_calls")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<OllamaToolCall>? ToolCalls { get; set; }
+
+    /// <summary>Set on role="tool" messages to tie a result to its call.</summary>
+    [JsonPropertyName("tool_name")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ToolName { get; set; }
+}
+
+// Tool definitions sent to Ollama (OpenAI-compatible shape).
+public class OllamaTool
+{
+    [JsonPropertyName("type")]
+    public string Type { get; set; } = "function";
+
+    [JsonPropertyName("function")]
+    public OllamaFunction Function { get; set; } = new();
+}
+
+public class OllamaFunction
+{
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("description")]
+    public string Description { get; set; } = string.Empty;
+
+    [JsonPropertyName("parameters")]
+    public object Parameters { get; set; } = new();
+}
+
+public class OllamaToolCall
+{
+    [JsonPropertyName("id")]
+    public string? Id { get; set; }
+
+    [JsonPropertyName("function")]
+    public OllamaToolCallFunction Function { get; set; } = new();
+}
+
+public class OllamaToolCallFunction
+{
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Ollama returns this as a JSON object, unlike OpenAI which sends a
+    /// JSON-encoded string, so it is captured as a raw element and unpacked.
+    /// </summary>
+    [JsonPropertyName("arguments")]
+    public JsonElement Arguments { get; set; }
 }
 
 public class OllamaOptions

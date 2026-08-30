@@ -12,6 +12,10 @@ using SNChat.LLM;
 using SNChat.LLM.Interfaces;
 using SNChat.LLM.Providers.Ollama;
 using SNChat.LLM.Providers.FreeToken;
+using SNChat.Core.Tools;
+using SNChat.WebTools;
+using SNChat.WebTools.ImageSources;
+using SNChat.WebTools.WebSources;
 
 namespace SNChat.App;
 
@@ -48,6 +52,10 @@ public partial class App : Application
 
             await _host.StartAsync();
 
+            // Load settings early
+            var settingsService = _host.Services.GetRequiredService<SettingsService>();
+            await settingsService.LoadSettingsAsync();
+
             // Initialize data directories
             InitializeDirectories(appDataPath);
 
@@ -79,15 +87,53 @@ public partial class App : Application
 
         // Register core services
         services.AddSingleton<IStorageService, StorageService>();
+        services.AddSingleton<SettingsService>();
+
+        // Tools the model can invoke
+        services.AddHttpClient<WebSearchTool>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+        services.AddHttpClient<GoogleWebSource>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+
+        // Image search backends; which one runs is chosen in Settings.
+        services.AddHttpClient<CommonsImageSource>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+        services.AddHttpClient<GoogleImageSource>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+        services.AddSingleton<ImageSearchTool>();
+
+        services.AddSingleton<IToolRegistry>(sp =>
+        {
+            var registry = new ToolRegistry(sp.GetRequiredService<ILogger<ToolRegistry>>());
+            registry.Register(sp.GetRequiredService<WebSearchTool>());
+            registry.Register(sp.GetRequiredService<ImageSearchTool>());
+            return registry;
+        });
 
         // Register LLM providers
-        services.AddSingleton<OllamaProvider>();
+        services.AddSingleton<OllamaProvider>(sp => new OllamaProvider(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(OllamaProvider)),
+            sp.GetRequiredService<ILogger<OllamaProvider>>(),
+            sp.GetRequiredService<IToolRegistry>()));
         services.AddSingleton<FreeTokenProvider>(sp =>
         {
             var httpClient = sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(FreeTokenProvider));
             var logger = sp.GetRequiredService<ILogger<FreeTokenProvider>>();
-            // TODO: Load API key from settings
-            return new FreeTokenProvider(httpClient, logger, apiKey: "", baseUrl: null);
+            var settingsService = sp.GetRequiredService<SettingsService>();
+            var settings = settingsService.GetCachedSettings();
+            return new FreeTokenProvider(httpClient, logger,
+                apiKey: settings.Providers.FreeTokenApiKey,
+                baseUrl: string.IsNullOrEmpty(settings.Providers.FreeTokenBaseUrl)
+                    ? null
+                    : settings.Providers.FreeTokenBaseUrl);
         });
 
         // Register provider factory
@@ -101,6 +147,8 @@ public partial class App : Application
 
         // Register ViewModels
         services.AddTransient<ViewModels.ChatViewModel>();
+        services.AddTransient<ViewModels.ConversationListViewModel>();
+        services.AddTransient<ViewModels.SettingsViewModel>();
 
         // Register Views
         services.AddSingleton<MainWindow>();

@@ -105,37 +105,52 @@
 
         <!-- Toolbar -->
         <Border Grid.Row="0" Background="#F0F0F0" BorderBrush="#CCCCCC" BorderThickness="0,0,0,1" Padding="10">
-            <StackPanel Orientation="Horizontal">
-                <Button Content="New Conversation"
-                        Command="{Binding NewConversationCommand}"
-                        Padding="10,5"
-                        Margin="0,0,10,0"/>
-                <Button Content="Cancel"
-                        Command="{Binding CancelGenerationCommand}"
-                        Padding="10,5"
-                        Margin="0,0,10,0"
-                        IsEnabled="{Binding IsStreaming}"/>
-                <TextBlock Text="{Binding CurrentConversation.Title}"
-                           VerticalAlignment="Center"
-                           FontWeight="SemiBold"
-                           Margin="20,0,0,0"/>
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="20,0,0,0">
-                    <TextBlock Text="Provider:" VerticalAlignment="Center" Margin="0,0,5,0"/>
-                    <ComboBox ItemsSource="{Binding AvailableProviders}"
-                              SelectedItem="{Binding CurrentProviderName}"
-                              MinWidth="100"
+            <Grid>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                    <Button Content="New Conversation"
+                            Command="{Binding NewConversationCommand}"
+                            Padding="10,5"
+                            Margin="0,0,10,0"/>
+                    <Button Content="Cancel"
+                            Command="{Binding CancelGenerationCommand}"
+                            Padding="10,5"
+                            Margin="0,0,10,0"
+                            IsEnabled="{Binding IsStreaming}"/>
+                    <Button Content="⚙ Settings"
+                            Click="SettingsButton_Click"
+                            Padding="10,5"
+                            Margin="0,0,10,0"/>
+                    <CheckBox Content="🔎 Web search"
+                              IsChecked="{Binding WebSearchEnabled}"
                               VerticalAlignment="Center"
+                              Margin="0,0,10,0"
+                              ToolTip="Let the model search the web when it needs current information. Adds tool definitions to each request."
                               IsEnabled="{Binding IsStreaming, Converter={StaticResource InverseBooleanConverter}}"/>
                 </StackPanel>
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0,0,0">
-                    <TextBlock Text="Model:" VerticalAlignment="Center" Margin="0,0,5,0"/>
-                    <ComboBox ItemsSource="{Binding AvailableModels}"
-                              SelectedItem="{Binding CurrentModel}"
-                              MinWidth="180"
-                              VerticalAlignment="Center"
-                              IsEnabled="{Binding IsStreaming, Converter={StaticResource InverseBooleanConverter}}"/>
+
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <TextBlock Text="{Binding CurrentConversation.Title}"
+                               VerticalAlignment="Center"
+                               FontWeight="SemiBold"
+                               Margin="0,0,20,0"/>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0">
+                        <TextBlock Text="Provider:" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                        <ComboBox ItemsSource="{Binding AvailableProviders}"
+                                  SelectedItem="{Binding CurrentProviderName}"
+                                  MinWidth="100"
+                                  VerticalAlignment="Center"
+                                  IsEnabled="{Binding IsStreaming, Converter={StaticResource InverseBooleanConverter}}"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="Model:" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                        <ComboBox ItemsSource="{Binding AvailableModels}"
+                                  SelectedItem="{Binding CurrentModel}"
+                                  MinWidth="180"
+                                  VerticalAlignment="Center"
+                                  IsEnabled="{Binding IsStreaming, Converter={StaticResource InverseBooleanConverter}}"/>
+                    </StackPanel>
                 </StackPanel>
-            </StackPanel>
+            </Grid>
         </Border>
 
         <!-- Messages Area -->
@@ -197,18 +212,23 @@
                             IsEnabled="{Binding IsStreaming, Converter={StaticResource InverseBooleanConverter}}"/>
                 </StackPanel>
 
-                <!-- Streaming indicator -->
+                <!-- Streaming indicator overlay on input area -->
                 <Border Grid.Row="0"
                         Grid.RowSpan="2"
                         Background="#80000000"
                         Visibility="{Binding IsStreaming, Converter={StaticResource BooleanToVisibilityConverter}}"
                         CornerRadius="4">
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                        <TextBlock Text="Generating response..."
+                        <TextBlock Text="⏳ Generating response..."
                                    Foreground="White"
                                    FontSize="14"
                                    FontWeight="SemiBold"
                                    HorizontalAlignment="Center"/>
+                        <TextBlock Text="{Binding StatusMessage}"
+                                   Foreground="#FFD966"
+                                   FontSize="12"
+                                   HorizontalAlignment="Center"
+                                   Margin="0,6,0,0"/>
                         <ProgressBar IsIndeterminate="True"
                                      Width="200"
                                      Height="4"

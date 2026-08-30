@@ -217,7 +217,11 @@ public class StorageService : IStorageService
             conversation.Metadata.Provider = frontmatter["provider"].ToString()!;
 
         if (frontmatter.ContainsKey("parent_branch") && frontmatter["parent_branch"] != null)
-            conversation.ParentBranchId = Guid.Parse(frontmatter["parent_branch"].ToString()!);
+        {
+            var parentBranchStr = frontmatter["parent_branch"].ToString();
+            if (!string.IsNullOrEmpty(parentBranchStr))
+                conversation.ParentBranchId = Guid.Parse(parentBranchStr);
+        }
 
         if (frontmatter.ContainsKey("branch_point"))
             conversation.BranchPoint = Convert.ToInt32(frontmatter["branch_point"]);

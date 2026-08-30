@@ -1,9 +1,11 @@
 # SNChat Implementation Status
 
-**Last Updated**: 2026-08-30 14:55 UTC  
+**Last Updated**: 2026-08-30 17:35 UTC  
 **Current Phase**: Phase 2 - Enhanced UI & Multiple Providers  
 **Phase 1 Status**: ✅ COMPLETE  
-**Phase 2 Status**: In Progress (40% Complete)
+**Phase 2 Status**: 🎉 85% Complete - Nearly Done!  
+**Bonus**: Tool calling with web + image search (unplanned, delivered early)  
+**Repository**: https://github.com/greatfog7242/SNChat
 
 ## Completed Work
 
@@ -223,6 +225,131 @@ Location: `SNChat.App/Views/ChatView.xaml`
 - Clean, readable typography with Segoe UI
 - Proper spacing and padding
 
+**Task #5**: Conversation List View ✅
+Location: `SNChat.App/Views/ConversationListView.xaml`, `SNChat.App/ViewModels/ConversationListViewModel.cs`
+
+**Implemented:**
+- Sidebar with all past conversations
+- Automatic loading of conversations on startup
+- Date-based grouping (Today, Yesterday, This Week, This Month, Older)
+- Search/filter functionality
+- Delete conversation with confirmation
+- Double-click to load conversation
+- Refresh button to reload list
+- Loading indicator during async operations
+- Clean, organized UI with hover effects
+
+**Features:**
+- Shows conversation title, message count, provider, and last updated time
+- Conversations sorted by most recent first
+- Click to load conversation into chat view
+- Auto-refresh when new conversations are saved
+- Handles both old (single-file) and new (folder-based) formats
+
+**Bug Fixes:**
+- Fixed GUID parsing error for empty parent_branch fields in conversation metadata
+
+**Files Created:**
+- `SNChat.App/ViewModels/ConversationListViewModel.cs`
+- `SNChat.App/Views/ConversationListView.xaml`
+- `SNChat.App/Views/ConversationListView.xaml.cs`
+
+**Task #6**: Settings UI ✅
+Location: `SNChat.App/Views/SettingsWindow.xaml`, `SNChat.Core/Models/AppSettings.cs`, `SNChat.Core/Services/SettingsService.cs`
+
+**Implemented:**
+- Complete settings management system
+- Settings window with tabbed interface (Providers, Defaults, UI, Storage)
+- JSON-based settings storage in `%APPDATA%/SNChat/config/settings.json`
+- Settings service with load/save functionality
+- Unsaved changes tracking and warnings
+
+**Settings Categories:**
+1. **Provider Settings**: API keys and base URLs for FreeToken, OpenRouter, Anthropic, OpenAI
+2. **Default Parameters**: Temperature, max tokens, top-p, default provider/model
+3. **UI Preferences**: Theme, font size, timestamps, markdown, sidebar width
+4. **Storage Settings**: Custom conversation path, auto-save, max conversations
+
+**Features:**
+- PasswordBox controls for secure API key entry
+- Slider controls for temperature and top-p
+- Reset to defaults functionality
+- Unsaved changes indicator
+- Confirmation on close with unsaved changes
+- Settings button in main toolbar
+- Auto-load settings on startup
+- FreeToken provider now uses API key from settings
+
+**Files Created:**
+- `SNChat.Core/Models/AppSettings.cs`
+- `SNChat.Core/Services/SettingsService.cs`
+- `SNChat.App/ViewModels/SettingsViewModel.cs`
+- `SNChat.App/Views/SettingsWindow.xaml`
+- `SNChat.App/Views/SettingsWindow.xaml.cs`
+
+**Bonus**: Tool Calling with Web & Image Search ✅
+Location: `SNChat.Core/Tools/`, `SNChat.WebTools/`, `OllamaProvider`
+
+**Framework** (provider-agnostic, reusable for future tools):
+- `ITool` - name, description, JSON-schema parameters, execute
+- `IToolRegistry` / `ToolRegistry` - registration and dispatch; unknown tools and
+  thrown exceptions come back as error results so a conversation never tears down
+- `ToolCall` / `ToolResult`, `ToolParameterSchema`
+- Agentic loop in `OllamaProvider`: model requests tool -> execute -> append
+  result -> re-ask, capped by `MaxToolIterations` (default 5)
+- Tool definitions are omitted entirely when the toggle is off, so ordinary
+  chats do not pay the extra prompt tokens
+
+**Tools**:
+- `web_search` - DuckDuckGo Instant Answer API, with Wikipedia REST as fallback
+  for summaries and images. Keyless.
+- `image_search` - Wikimedia Commons API. Keyless, freely-licensed images.
+
+**UI**: `🔎 Web search` toggle in the toolbar; live `🔎 Using <tool>...` status
+in the streaming overlay (status chunks are shown but never persisted).
+
+**Files Created**:
+- `SNChat.Core/Tools/ITool.cs`, `IToolRegistry.cs`, `ToolRegistry.cs`,
+  `ToolCall.cs`, `ToolParameterSchema.cs`
+- `SNChat.WebTools/WebSearchTool.cs`, `ImageSearchTool.cs`, `ImageUrl.cs`
+
+### Non-obvious findings (worth not rediscovering)
+
+**Markdig.Wpf silently fails on percent-encoded image URLs.** Any `%XX` escape in
+the path yields a zero-sized image with no exception and no log entry - even
+plain ASCII escapes such as `%2C` for a comma. Decoding the path fixes it.
+Wikimedia escapes any filename with punctuation or non-ASCII characters, so most
+image results were silently invisible. Handled in `ImageUrl.ForMarkdown`.
+
+**Markdown links were never clickable.** WPF does nothing on `Hyperlink` click
+without a `RequestNavigate` handler; one is now registered in `ChatView`, and it
+only follows http/https since the URLs come from model output.
+
+**Ollama returns 404 for a missing model**, which is indistinguishable from a bad
+endpoint in the logs. A hardcoded default of `llama3.1:8b` that was not installed
+caused this; `LoadConversation` now validates the saved model against the
+available list.
+
+**Google Custom Search JSON API appears closed to new projects (2026-08-30).**
+A valid, recognised API key returns `403 "This project does not have the access
+to Custom Search JSON API"` even after enabling the API in Cloud Console. An
+invalid key returns a clearly different error (`API key not valid`), which rules
+out a credential problem. Reportedly Google has sunset new sign-ups. The
+`GoogleWebSource` and `GoogleImageSource` implementations are complete and remain
+wired in - they activate automatically if a working key is ever supplied - but
+they have never been exercised against a successful response, so the parsing of
+`items[].title/link/snippet` is written to spec and unverified. Default behaviour
+falls back to DuckDuckGo + Wikipedia (text) and Wikimedia Commons (images), which
+need no credentials.
+
+**DuckDuckGo HTML scraping is not viable.** `html.` and `lite.` endpoints serve an
+image CAPTCHA (`cc=botnet`) once an IP is flagged. The Python `duckduckgo_search`
+library only reaches the image endpoint by impersonating browser TLS fingerprints
+via `primp`, which .NET cannot do. The official Instant Answer API and Wikimedia
+Commons are used instead - both documented, keyless, and stable. Note the Instant
+Answer API returns HTTP **202 on success**, so status codes are not a validity
+signal there; judge by payload.
+
 ### Task List (Phase 2)
 
 **Task #1**: Implement Provider Factory Pattern ✅ COMPLETE
@@ -231,13 +358,14 @@ Location: `SNChat.App/Views/ChatView.xaml`
 - ✅ Add provider switching in UI
 - ✅ Store selected provider in conversation metadata
 
-**Task #2**: Enhance Provider Support ⚠️ PARTIAL
+**Task #2**: Enhance Provider Support ✅ COMPLETE
 - ✅ FreeToken provider created with streaming support
 - ✅ OpenAI-compatible API pattern implemented
 - ✅ Default model list (GPT-3.5, GPT-4, Claude 3)
-- ⚠️ API key management UI needed (currently hardcoded empty)
-- ⚠️ Settings storage for API keys (planned in Task #6)
-- 🔄 Optional: Add more providers (OpenRouter, Anthropic Direct, etc.)
+- ✅ API key management UI (via Settings)
+- ✅ Settings storage for API keys
+- ✅ FreeToken provider uses API key from settings
+- 🔄 Optional: Add more providers (OpenRouter, Anthropic Direct, etc.) - future enhancement
 
 **Task #3**: Add Markdown Rendering in Chat ✅ COMPLETE
 - ✅ Install Markdig.Wpf NuGet package
@@ -252,23 +380,27 @@ Location: `SNChat.App/Views/ChatView.xaml`
 - Detect language from markdown code fence
 - Support copy-to-clipboard for code blocks
 
-**Task #5**: Build Conversation List View
-- Create `ConversationListViewModel`
-- Create `ConversationListView.xaml` sidebar
-- Load and display all saved conversations
-- Group by date (Today, Yesterday, This Week, etc.)
-- Add search/filter functionality
-- Double-click to load conversation
+**Task #5**: Build Conversation List View ✅ COMPLETE
+- ✅ Create `ConversationListViewModel`
+- ✅ Create `ConversationListView.xaml` sidebar
+- ✅ Load and display all saved conversations
+- ✅ Group by date (Today, Yesterday, This Week, etc.)
+- ✅ Add search/filter functionality
+- ✅ Double-click to load conversation
+- ✅ Delete conversation with confirmation
+- ✅ Auto-refresh on save
 
-**Task #6**: Implement Settings UI
-- Create `SettingsViewModel`
-- Create `SettingsView.xaml` window
-- Settings categories:
-  - LLM Providers (API keys, endpoints)
-  - Default parameters (temperature, max tokens)
-  - UI preferences (theme, font size)
-  - Storage location
-- Save settings to `%APPDATA%/SNChat/config/settings.json`
+**Task #6**: Implement Settings UI ✅ COMPLETE
+- ✅ Create `SettingsViewModel`
+- ✅ Create `SettingsWindow.xaml` with tabbed interface
+- ✅ Settings categories implemented:
+  - ✅ LLM Providers (API keys for FreeToken, OpenRouter, Anthropic, OpenAI)
+  - ✅ Default parameters (temperature, max tokens, top-p)
+  - ✅ UI preferences (theme, font size, timestamps, markdown, sidebar width)
+  - ✅ Storage settings (path, auto-save, max conversations)
+- ✅ Save settings to `%APPDATA%/SNChat/config/settings.json`
+- ✅ Settings service with caching
+- ✅ Unsaved changes tracking
 
 **Task #7**: Add Conversation Search
 - Implement full-text search across conversations

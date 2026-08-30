@@ -65,12 +65,51 @@ All notable changes to SNChat will be documented in this file.
 - ✅ Code syntax styling with monospace font
 - ✅ Support for lists, links, blockquotes, tables
 
-**In Progress**
-- ⚠️ API key management (needs Settings UI)
-- [ ] Enhanced code syntax highlighting (AvalonEdit)
-- [ ] Conversation list view
-- [ ] Settings UI
-- [ ] Conversation search
+**Added (2026-08-30 - Latest)**
+- ✅ Complete Settings UI with tabbed interface
+- ✅ API key management for multiple providers
+- ✅ Settings storage as JSON
+- ✅ Default parameters configuration
+- ✅ UI preferences customization
+- ✅ Storage settings management
+- ✅ Unsaved changes tracking
+- ✅ Conversation list sidebar with date grouping
+- ✅ Search and filter conversations
+- ✅ Load/delete past conversations
+- ✅ Bug fix: GUID parsing for empty parent_branch fields
+
+**Added (2026-08-30 - tool calling, unplanned bonus)**
+- ✅ Tool-calling framework (`ITool`, `IToolRegistry`, agentic loop in OllamaProvider)
+- ✅ `web_search` tool - DuckDuckGo Instant Answer API + Wikipedia fallback
+- ✅ `image_search` tool - Wikimedia Commons, returns freely-licensed images
+- ✅ Web search toggle in toolbar; live tool-progress status in the overlay
+- ✅ Clickable source links (added the missing `RequestNavigate` handler)
+- ✅ Inline images in chat responses
+
+**Fixed**
+- Ollama 404s caused by a hardcoded `llama3.1:8b` default that was not installed;
+  conversations now validate their saved model against what the provider reports
+- `request.CancellationToken` was never set, so Cancel relied on a loop check
+- Provider errors were swallowed by a bare `yield break`, producing an empty
+  message; Ollama's JSON error body is now surfaced to the user
+- Markdig.Wpf renders nothing for percent-encoded image URLs (silent zero-sized
+  image); URLs are now decoded before embedding
+- Oversized images (up to 3840px) now request ~500px thumbnails
+
+**Added (2026-08-30 - selectable search backends)**
+- ✅ `GoogleWebSource` and `GoogleImageSource` (Custom Search JSON API)
+- ✅ Settings → Search tab: web source, image source, SafeSearch toggle
+- ✅ Automatic fallback to keyless sources when a backend is unconfigured,
+  over quota, or returns nothing
+- ⚠️ Google paths are dormant: the API appears closed to new projects, so they
+  are complete but unverified against a live response
+
+**Optional/Future Enhancements**
+- [ ] Enhanced code syntax highlighting with AvalonEdit
+- [ ] Full-text conversation search across all messages
+- [ ] Conversation templates
+- [ ] Export conversations (PDF, HTML)
+- [ ] Additional LLM providers (OpenRouter direct integration)
 
 **Technical Details**
 - FreeToken provider supports GPT-3.5, GPT-4, Claude 3 models

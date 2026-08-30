@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using SNChat.Core.Interfaces;
 using SNChat.Core.Models;
+using SNChat.Core.Tools;
 using SNChat.LLM.Interfaces;
 using SNChat.LLM.Models;
 
@@ -14,6 +15,7 @@ public partial class ChatViewModel : ObservableObject
 {
     private readonly ILLMProviderFactory _providerFactory;
     private readonly IStorageService _storageService;
+    private readonly IToolRegistry _toolRegistry;
     private readonly ILogger<ChatViewModel> _logger;
     private CancellationTokenSource? _cancellationTokenSource;
     private ILLMProvider _currentProvider;
@@ -33,8 +35,14 @@ public partial class ChatViewModel : ObservableObject
     [ObservableProperty]
     private string _streamingContent = string.Empty;
 
+    /// <summary>Transient progress text such as "Using web_search...".</summary>
     [ObservableProperty]
-    private string _currentModel = "llama3.1:8b";
+    private string _statusMessage = string.Empty;
+
+    // Left empty on purpose: the real value comes from whatever the provider
+    // reports as installed. A hardcoded guess produces 404 "model not found".
+    [ObservableProperty]
+    private string _currentModel = string.Empty;
 
     [ObservableProperty]
     private ObservableCollection<string> _availableModels = new();
@@ -45,13 +53,23 @@ public partial class ChatViewModel : ObservableObject
     [ObservableProperty]
     private ObservableCollection<string> _availableProviders = new();
 
+    /// <summary>
+    /// When off, no tool definitions are sent, keeping ordinary chats fast.
+    /// </summary>
+    [ObservableProperty]
+    private bool _webSearchEnabled;
+
+    public event EventHandler? ConversationSaved;
+
     public ChatViewModel(
         ILLMProviderFactory providerFactory,
         IStorageService storageService,
+        IToolRegistry toolRegistry,
         ILogger<ChatViewModel> logger)
     {
         _providerFactory = providerFactory;
         _storageService = storageService;
+        _toolRegistry = toolRegistry;
         _logger = logger;
 
         // Load available providers
@@ -104,9 +122,9 @@ public partial class ChatViewModel : ObservableObject
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to load available models from {Provider}", CurrentProviderName);
-            if (!AvailableModels.Contains(CurrentModel))
+            if (!string.IsNullOrEmpty(CurrentModel) && !AvailableModels.Contains(CurrentModel))
             {
-                AvailableModels.Add(CurrentModel); // Fallback to default
+                AvailableModels.Add(CurrentModel); // Keep whatever we already had
             }
         }
     }
@@ -198,18 +216,31 @@ public partial class ChatViewModel : ObservableObject
                 {
                     Temperature = 0.7,
                     MaxTokens = 2000
-                }
+                },
+                CancellationToken = _cancellationTokenSource.Token,
+                Tools = WebSearchEnabled
+                    ? _toolRegistry.GetTools()
+                    : Array.Empty<ITool>()
             };
 
-            _logger.LogDebug("Sending request to {Provider}: {MessageCount} messages", CurrentProviderName, request.Messages.Count);
+            _logger.LogDebug("Sending request to {Provider}: {MessageCount} messages, {ToolCount} tool(s)",
+                CurrentProviderName, request.Messages.Count, request.Tools.Count);
 
             await foreach (var chunk in _currentProvider.GenerateStreamAsync(request))
             {
                 if (_cancellationTokenSource.Token.IsCancellationRequested)
                     break;
 
+                // Progress notices are shown live but never persisted into the answer.
+                if (chunk.IsStatus)
+                {
+                    StatusMessage = chunk.Content;
+                    continue;
+                }
+
                 if (!string.IsNullOrEmpty(chunk.Content))
                 {
+                    StatusMessage = string.Empty;
                     StreamingContent += chunk.Content;
                     assistantMessage.Content = StreamingContent;
                 }
@@ -245,9 +276,43 @@ public partial class ChatViewModel : ObservableObject
         {
             IsStreaming = false;
             StreamingContent = string.Empty;
+            StatusMessage = string.Empty;
             _cancellationTokenSource?.Dispose();
             _cancellationTokenSource = null;
         }
+    }
+
+    public void LoadConversation(Conversation conversation)
+    {
+        CurrentConversation = conversation;
+
+        if (!string.IsNullOrEmpty(conversation.Metadata.Provider))
+            CurrentProviderName = conversation.Metadata.Provider;
+
+        // A conversation can reference a model that has since been removed from the
+        // provider. Sending it anyway makes Ollama reply 404 "model not found", so
+        // fall back to something actually installed.
+        var savedModel = conversation.Metadata.ModelName;
+        if (!string.IsNullOrEmpty(savedModel) && AvailableModels.Contains(savedModel))
+        {
+            CurrentModel = savedModel;
+        }
+        else if (AvailableModels.Count > 0)
+        {
+            _logger.LogWarning(
+                "Conversation model {SavedModel} is not available; falling back to {Fallback}",
+                savedModel, AvailableModels[0]);
+            CurrentModel = AvailableModels[0];
+        }
+
+        Messages.Clear();
+        foreach (var message in conversation.Messages)
+        {
+            Messages.Add(message);
+        }
+
+        _logger.LogInformation("Loaded conversation: {Title} with {Count} messages",
+            conversation.Title, conversation.Messages.Count);
     }
 
     private async Task SaveConversationAsync()
@@ -273,6 +338,9 @@ public partial class ChatViewModel : ObservableObject
 
                 await _storageService.SaveConversationAsync(CurrentConversation);
                 _logger.LogDebug("Conversation saved: {ConversationId}", CurrentConversation.Id);
+
+                // Notify that conversation was saved
+                ConversationSaved?.Invoke(this, EventArgs.Empty);
             }
         }
         catch (Exception ex)

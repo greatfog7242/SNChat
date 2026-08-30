@@ -8,9 +8,25 @@
         mc:Ignorable="d"
         Title="SNChat - AI Chat Assistant"
         Height="700"
-        Width="1000"
+        Width="1200"
         WindowStartupLocation="CenterScreen">
     <Grid>
-        <views:ChatView x:Name="ChatViewControl"/>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="300"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- Conversation List Sidebar -->
+        <views:ConversationListView Grid.Column="0" x:Name="ConversationListControl"/>
+
+        <!-- Splitter -->
+        <GridSplitter Grid.Column="1"
+                      Width="4"
+                      HorizontalAlignment="Stretch"
+                      Background="#E0E0E0"/>
+
+        <!-- Chat View -->
+        <views:ChatView Grid.Column="2" x:Name="ChatViewControl"/>
     </Grid>
 </Window>

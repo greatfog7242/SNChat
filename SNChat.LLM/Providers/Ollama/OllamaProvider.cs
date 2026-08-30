@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using SNChat.Core.Models;
+using SNChat.Core.Tools;
 using SNChat.LLM.Interfaces;
 using SNChat.LLM.Models;
 using SNChat.LLM.Providers.Base;
@@ -12,13 +13,19 @@ namespace SNChat.LLM.Providers.Ollama;
 
 public class OllamaProvider : BaseLLMProvider
 {
+    private readonly IToolRegistry? _toolRegistry;
+
     protected override string BaseUrl => "http://localhost:11434";
     public override string Name => "Ollama";
 
-    public OllamaProvider(HttpClient httpClient, ILogger<OllamaProvider> logger)
+    public OllamaProvider(
+        HttpClient httpClient,
+        ILogger<OllamaProvider> logger,
+        IToolRegistry? toolRegistry = null)
         : base(httpClient, logger)
     {
         httpClient.BaseAddress = new Uri(BaseUrl);
+        _toolRegistry = toolRegistry;
     }
 
     public override async Task<List<Model>> GetAvailableModelsAsync()
@@ -62,49 +69,195 @@ public class OllamaProvider : BaseLLMProvider
         return fullResponse.ToString();
     }
 
+    /// <summary>
+    /// Pulls the human-readable message out of an Ollama error body such as
+    /// {"error":"model 'llama3.1:8b' not found"}. Returns null if absent.
+    /// </summary>
+    private static string? ExtractOllamaError(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+            return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.TryGetProperty("error", out var error))
+                return error.GetString();
+        }
+        catch (JsonException)
+        {
+            // Not JSON - fall through and let the caller use the status code.
+        }
+
+        return null;
+    }
+
     public override async IAsyncEnumerable<StreamChunk> GenerateStreamAsync(GenerateRequest request)
     {
         var ollamaRequest = ConvertToOllamaRequest(request);
 
+        // Each pass is one exchange with the model. When the model answers with
+        // tool calls we run them, append the results, and go round again. The
+        // iteration cap stops a model that keeps calling tools forever.
+        for (var iteration = 0; iteration <= request.MaxToolIterations; iteration++)
+        {
+            var pendingToolCalls = new List<OllamaToolCall>();
+            var sawContent = false;
+
+            await foreach (var item in SendOnceAsync(ollamaRequest, request.CancellationToken))
+            {
+                if (item.ToolCall != null)
+                {
+                    pendingToolCalls.Add(item.ToolCall);
+                    continue;
+                }
+
+                if (item.Chunk != null)
+                {
+                    // Hold back the terminal chunk until we know whether tools
+                    // still need to run; otherwise the UI would end the turn early.
+                    if (item.Chunk.IsFinal && pendingToolCalls.Count > 0)
+                        continue;
+
+                    if (!string.IsNullOrEmpty(item.Chunk.Content))
+                        sawContent = true;
+
+                    yield return item.Chunk;
+                }
+            }
+
+            if (pendingToolCalls.Count == 0)
+            {
+                // Plain answer, already streamed above.
+                yield break;
+            }
+
+            if (_toolRegistry == null)
+            {
+                yield return new StreamChunk
+                {
+                    Content = "⚠️ The model requested a tool, but no tools are available.",
+                    IsFinal = true
+                };
+                yield break;
+            }
+
+            if (iteration == request.MaxToolIterations)
+            {
+                Logger.LogWarning("Hit the {Max}-iteration tool limit", request.MaxToolIterations);
+                yield return new StreamChunk
+                {
+                    Content = sawContent
+                        ? "\n\n⚠️ Stopped after too many tool calls."
+                        : "⚠️ Stopped after too many tool calls without producing an answer.",
+                    IsFinal = true
+                };
+                yield break;
+            }
+
+            // Record what the model asked for, so the follow-up request keeps
+            // the call/result pairing intact.
+            ollamaRequest.Messages.Add(new OllamaMessage
+            {
+                Role = "assistant",
+                Content = string.Empty,
+                ToolCalls = pendingToolCalls
+            });
+
+            foreach (var call in pendingToolCalls)
+            {
+                var toolName = call.Function.Name;
+
+                yield return new StreamChunk
+                {
+                    Content = $"🔎 Using {toolName}...",
+                    IsStatus = true
+                };
+
+                var result = await _toolRegistry.ExecuteAsync(
+                    new ToolCall
+                    {
+                        Id = call.Id ?? string.Empty,
+                        Name = toolName,
+                        Arguments = UnpackArguments(call.Function.Arguments)
+                    },
+                    request.CancellationToken);
+
+                ollamaRequest.Messages.Add(new OllamaMessage
+                {
+                    Role = "tool",
+                    ToolName = toolName,
+                    Content = result.Content
+                });
+            }
+        }
+    }
+
+    /// <summary>
+    /// One request/response exchange. Emits content chunks as they arrive and
+    /// surfaces any tool calls the model asked for.
+    /// </summary>
+    private async IAsyncEnumerable<StreamItem> SendOnceAsync(
+        OllamaChatRequest ollamaRequest,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
         using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "/api/chat")
         {
             Content = JsonContent.Create(ollamaRequest)
         };
 
-        HttpResponseMessage response;
+        HttpResponseMessage? response = null;
+        string? errorMessage = null;
 
-        // Send the request
         try
         {
             response = await HttpClient.SendAsync(
                 httpRequest,
                 HttpCompletionOption.ResponseHeadersRead,
-                request.CancellationToken);
-            response.EnsureSuccessStatusCode();
+                cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                // Ollama returns a JSON body explaining the failure, e.g.
+                // {"error":"model 'llama3.1:8b' not found"} with a 404.
+                var body = await response.Content.ReadAsStringAsync(cancellationToken);
+                errorMessage = ExtractOllamaError(body) ?? $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}";
+                Logger.LogError("Ollama request failed: {StatusCode} - {Body}", response.StatusCode, body);
+            }
         }
         catch (HttpRequestException ex)
         {
             Logger.LogError(ex, "HTTP error when connecting to Ollama");
-            yield break; // No yield return in catch
+            errorMessage = $"Could not reach Ollama at {BaseUrl}. Is it running? ({ex.Message})";
         }
         catch (TaskCanceledException)
         {
             Logger.LogWarning("Request to Ollama was cancelled");
+            response?.Dispose();
             yield break;
         }
 
-        // Process the streaming response
-        using (response)
+        if (errorMessage != null)
         {
-            await using var stream = await response.Content.ReadAsStreamAsync(request.CancellationToken);
+            response?.Dispose();
+            yield return new StreamItem
+            {
+                Chunk = new StreamChunk { Content = $"⚠️ {errorMessage}", IsFinal = true }
+            };
+            yield break;
+        }
+
+        using (response!)
+        {
+            await using var stream = await response!.Content.ReadAsStreamAsync(cancellationToken);
             using var reader = new StreamReader(stream);
 
             while (!reader.EndOfStream)
             {
-                if (request.CancellationToken.IsCancellationRequested)
+                if (cancellationToken.IsCancellationRequested)
                     yield break;
 
-                var line = await reader.ReadLineAsync(request.CancellationToken);
+                var line = await reader.ReadLineAsync(cancellationToken);
                 if (string.IsNullOrWhiteSpace(line))
                     continue;
 
@@ -122,24 +275,63 @@ public class OllamaProvider : BaseLLMProvider
                 if (chunk == null)
                     continue;
 
-                var content = chunk.Message?.Content ?? string.Empty;
-
-                yield return new StreamChunk
+                if (chunk.Message?.ToolCalls is { Count: > 0 } toolCalls)
                 {
-                    Content = content,
-                    IsFinal = chunk.Done,
-                    Metadata = chunk.Done ? new StreamMetadata
+                    foreach (var call in toolCalls)
+                        yield return new StreamItem { ToolCall = call };
+                }
+
+                yield return new StreamItem
+                {
+                    Chunk = new StreamChunk
                     {
-                        PromptEvalCount = chunk.PromptEvalCount,
-                        EvalCount = chunk.EvalCount,
-                        TotalDuration = chunk.TotalDuration
-                    } : null
+                        Content = chunk.Message?.Content ?? string.Empty,
+                        IsFinal = chunk.Done,
+                        Metadata = chunk.Done ? new StreamMetadata
+                        {
+                            PromptEvalCount = chunk.PromptEvalCount,
+                            EvalCount = chunk.EvalCount,
+                            TotalDuration = chunk.TotalDuration
+                        } : null
+                    }
                 };
 
                 if (chunk.Done)
                     break;
             }
         }
+    }
+
+    /// <summary>
+    /// Flattens Ollama's JSON argument object into plain CLR values for ITool.
+    /// </summary>
+    private static Dictionary<string, object?> UnpackArguments(JsonElement arguments)
+    {
+        var result = new Dictionary<string, object?>();
+
+        if (arguments.ValueKind != JsonValueKind.Object)
+            return result;
+
+        foreach (var property in arguments.EnumerateObject())
+        {
+            result[property.Name] = property.Value.ValueKind switch
+            {
+                JsonValueKind.String => property.Value.GetString(),
+                JsonValueKind.Number => property.Value.TryGetInt64(out var l) ? l : property.Value.GetDouble(),
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                JsonValueKind.Null => null,
+                _ => property.Value.GetRawText()
+            };
+        }
+
+        return result;
+    }
+
+    private class StreamItem
+    {
+        public StreamChunk? Chunk { get; set; }
+        public OllamaToolCall? ToolCall { get; set; }
     }
 
     private OllamaChatRequest ConvertToOllamaRequest(GenerateRequest request)
@@ -168,6 +360,11 @@ public class OllamaProvider : BaseLLMProvider
             Model = request.Model,
             Messages = messages,
             Stream = true,
+            // Omitted entirely when no tools are enabled, so ordinary chats do
+            // not pay the extra prompt tokens for tool definitions.
+            Tools = request.Tools.Count > 0
+                ? request.Tools.Select(ToOllamaTool).ToList()
+                : null,
             Options = new OllamaOptions
             {
                 Temperature = request.Parameters.Temperature,
@@ -179,4 +376,26 @@ public class OllamaProvider : BaseLLMProvider
             }
         };
     }
+
+    private static OllamaTool ToOllamaTool(ITool tool) => new()
+    {
+        Function = new OllamaFunction
+        {
+            Name = tool.Name,
+            Description = tool.Description,
+            Parameters = new
+            {
+                type = tool.Parameters.Type,
+                properties = tool.Parameters.Properties.ToDictionary(
+                    p => p.Key,
+                    p => (object)new
+                    {
+                        type = p.Value.Type,
+                        description = p.Value.Description,
+                        @enum = p.Value.Enum
+                    }),
+                required = tool.Parameters.Required
+            }
+        }
+    };
 }
