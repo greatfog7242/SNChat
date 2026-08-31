@@ -240,14 +240,16 @@
                         </StackPanel>
 
                         <TextBlock Text="Default Provider:" Margin="0,0,0,2"/>
-                        <ComboBox SelectedItem="{Binding DefaultProvider}"
+                        <!-- Bound to the registered providers rather than a
+                             hardcoded list: ComboBoxItem children made
+                             SelectedItem an object, which was persisted as
+                             "System.Windows.Controls.ComboBoxItem: Ollama" and
+                             could never match a provider name. -->
+                        <ComboBox ItemsSource="{Binding ProviderOptions}"
+                                  SelectedItem="{Binding DefaultProvider}"
                                   Width="200"
                                   HorizontalAlignment="Left"
-                                  Margin="0,0,0,15">
-                            <ComboBoxItem Content="Ollama"/>
-                            <ComboBoxItem Content="FreeToken"/>
-                            <ComboBoxItem Content="OpenRouter"/>
-                        </ComboBox>
+                                  Margin="0,0,0,15"/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

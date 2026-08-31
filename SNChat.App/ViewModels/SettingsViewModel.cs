@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using SNChat.Core.Models;
 using SNChat.Core.Services;
+using SNChat.LLM.Interfaces;
 using SNChat.LLM.Providers.OpenRouter;
 
 namespace SNChat.App.ViewModels;
@@ -133,14 +134,19 @@ public partial class SettingsViewModel : ObservableObject
 
     public event EventHandler? SettingsSaved;
 
+    /// <summary>Registered provider names, for the Default Provider list.</summary>
+    public IReadOnlyList<string> ProviderOptions { get; }
+
     public SettingsViewModel(
         SettingsService settingsService,
         OpenRouterProvider openRouter,
+        ILLMProviderFactory providerFactory,
         ILogger<SettingsViewModel> logger)
     {
         _settingsService = settingsService;
         _openRouter = openRouter;
         _logger = logger;
+        ProviderOptions = providerFactory.GetAvailableProviders().ToList();
 
         _ = LoadSettingsAsync();
     }

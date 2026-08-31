@@ -68,8 +68,20 @@ public class DefaultParameters
     public double Temperature { get; set; } = 0.7;
     public int MaxTokens { get; set; } = 2048;
     public double TopP { get; set; } = 0.9;
+
+    /// <summary>Used on first run, before anything has been picked.</summary>
     public string DefaultProvider { get; set; } = "Ollama";
     public string DefaultModel { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Provider and model in use when the app last ran, restored on launch so a
+    /// session picks up where the previous one left off. Kept apart from
+    /// DefaultProvider so that switching provider in the main window does not
+    /// silently rewrite the default configured in Settings. Empty until
+    /// something has been selected, in which case the defaults above apply.
+    /// </summary>
+    public string LastProvider { get; set; } = string.Empty;
+    public string LastModel { get; set; } = string.Empty;
 }
 
 public class ToolSettings

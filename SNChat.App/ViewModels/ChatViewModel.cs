@@ -24,6 +24,12 @@ public partial class ChatViewModel : ObservableObject
     private CancellationTokenSource? _cancellationTokenSource;
     private ILLMProvider _currentProvider;
 
+    /// <summary>
+    /// False while the constructor is restoring the previous session, so that
+    /// restoring a selection is not itself recorded as a new one.
+    /// </summary>
+    private bool _selectionRestored;
+
     [ObservableProperty]
     private ObservableCollection<Message> _messages = new();
 
@@ -105,18 +111,99 @@ public partial class ChatViewModel : ObservableObject
             AvailableProviders.Add(providerName);
         }
 
-        // Set default provider
+        RestoreLastSelection();
+
         _currentProvider = _providerFactory.GetProvider(CurrentProviderName);
 
         StartNewConversation();
         _ = LoadAvailableModelsAsync();
+
+        // Only from here on does a change represent a choice worth saving;
+        // everything above is the restore itself.
+        _selectionRestored = true;
     }
+
+    /// <summary>
+    /// Puts back the provider and model from the previous session, falling back
+    /// to the configured defaults.
+    ///
+    /// The backing fields are assigned directly: setting the properties would
+    /// fire OnCurrentProviderNameChanged, which resolves the provider and
+    /// starts a model load, before this constructor has finished wiring itself
+    /// up.
+    /// </summary>
+    // Assigning the [ObservableProperty] backing fields is the point here, not
+    // an oversight: the generated setters raise change notifications, and this
+    // runs before the view model is ready to react to them.
+#pragma warning disable MVVMTK0034
+    private void RestoreLastSelection()
+    {
+        var defaults = _settingsService.GetCachedSettings().Defaults;
+
+        var provider = string.IsNullOrWhiteSpace(defaults.LastProvider)
+            ? defaults.DefaultProvider
+            : defaults.LastProvider;
+
+        // A provider can disappear between runs, by rename or by being
+        // unregistered. Falling back keeps the app usable instead of throwing
+        // out of the constructor and taking the window with it.
+        if (!AvailableProviders.Contains(provider))
+        {
+            if (!string.IsNullOrEmpty(provider))
+                _logger.LogWarning("Provider {Provider} is no longer available; using {Fallback}",
+                    provider, AvailableProviders.FirstOrDefault());
+
+            provider = AvailableProviders.FirstOrDefault() ?? "Ollama";
+        }
+
+        _currentProviderName = provider;
+
+        // Left for LoadAvailableModelsAsync to validate: the model list is not
+        // known yet, and it already replaces a model the provider does not offer.
+        _currentModel = string.IsNullOrWhiteSpace(defaults.LastModel)
+            ? defaults.DefaultModel
+            : defaults.LastModel;
+
+        _logger.LogInformation("Restored selection: {Provider} / {Model}",
+            _currentProviderName,
+            string.IsNullOrEmpty(_currentModel) ? "(first available)" : _currentModel);
+    }
+#pragma warning restore MVVMTK0034
+
+    /// <summary>
+    /// Records the current pick so the next launch starts here. Fire-and-forget:
+    /// a settings write must not block the UI thread on a dropdown change, and a
+    /// failure to remember a preference is not worth interrupting the user over.
+    /// </summary>
+    private void PersistSelection()
+    {
+        if (!_selectionRestored)
+            return;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var settings = _settingsService.GetCachedSettings();
+                settings.Defaults.LastProvider = CurrentProviderName;
+                settings.Defaults.LastModel = CurrentModel;
+                await _settingsService.SaveSettingsAsync(settings);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not save the provider/model selection");
+            }
+        });
+    }
+
+    partial void OnCurrentModelChanged(string value) => PersistSelection();
 
     partial void OnCurrentProviderNameChanged(string value)
     {
         try
         {
             _currentProvider = _providerFactory.GetProvider(value);
+            PersistSelection();
             _ = LoadAvailableModelsAsync();
             _logger.LogInformation("Switched to provider: {Provider}", value);
         }
