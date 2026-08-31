@@ -3,6 +3,7 @@
   <Project Path="SNChat.Core/SNChat.Core.csproj" />
   <Project Path="SNChat.FileTools/SNChat.FileTools.csproj" />
   <Project Path="SNChat.LLM/SNChat.LLM.csproj" />
+  <Project Path="SNChat.MCP/SNChat.MCP.csproj" />
   <Project Path="SNChat.RAG/SNChat.RAG.csproj" />
   <Project Path="SNChat.Tests/SNChat.Tests.csproj" />
   <Project Path="SNChat.WebTools/SNChat.WebTools.csproj" />
