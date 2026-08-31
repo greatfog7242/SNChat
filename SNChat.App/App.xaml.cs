@@ -12,6 +12,7 @@ using SNChat.LLM;
 using SNChat.LLM.Interfaces;
 using SNChat.LLM.Providers.Ollama;
 using SNChat.LLM.Providers.FreeToken;
+using SNChat.LLM.Providers.OpenRouter;
 using SNChat.Core.Tools;
 using SNChat.WebTools;
 using SNChat.WebTools.ImageSources;
@@ -89,6 +90,11 @@ public partial class App : Application
             client.Timeout = TimeSpan.FromMinutes(5);
         });
 
+        services.AddHttpClient<OpenRouterProvider>(client =>
+        {
+            client.Timeout = TimeSpan.FromMinutes(5);
+        });
+
         // Register core services
         services.AddSingleton<IStorageService, StorageService>();
         services.AddSingleton<SettingsService>();
@@ -155,12 +161,26 @@ public partial class App : Application
                     : settings.Providers.FreeTokenBaseUrl);
         });
 
+        services.AddSingleton<OpenRouterProvider>(sp =>
+        {
+            var httpClient = sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(OpenRouterProvider));
+            var logger = sp.GetRequiredService<ILogger<OpenRouterProvider>>();
+            var settings = sp.GetRequiredService<SettingsService>().GetCachedSettings();
+            return new OpenRouterProvider(httpClient, logger,
+                sp.GetRequiredService<IToolRegistry>(),
+                apiKey: settings.Providers.OpenRouterApiKey,
+                baseUrl: string.IsNullOrEmpty(settings.Providers.OpenRouterBaseUrl)
+                    ? null
+                    : settings.Providers.OpenRouterBaseUrl);
+        });
+
         // Register provider factory
         services.AddSingleton<ILLMProviderFactory>(sp =>
         {
             var factory = new ProviderFactory();
             factory.RegisterProvider("Ollama", sp.GetRequiredService<OllamaProvider>());
             factory.RegisterProvider("FreeToken", sp.GetRequiredService<FreeTokenProvider>());
+            factory.RegisterProvider("OpenRouter", sp.GetRequiredService<OpenRouterProvider>());
             return factory;
         });
 
