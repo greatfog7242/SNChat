@@ -57,44 +57,50 @@ This installs the official filesystem server globally on your computer.
 
 SNChat stores settings here:
 ```
-Windows: C:\Users\YourName\AppData\Roaming\SNChat\settings.json
+Windows: C:\Users\YourName\AppData\Roaming\SNChat\config\settings.json
 ```
 
 Quick way to find it:
 1. Press `Win + R`
-2. Type: `%APPDATA%\SNChat`
+2. Type: `%APPDATA%\SNChat\config`
 3. Press Enter
 4. You'll see `settings.json`
+
+**Note the `config` subfolder** — the file is not in the `SNChat` folder directly.
 
 ### Step 3: Edit Settings
 
 Open `settings.json` in Notepad (or any text editor).
 
-Find the `"tools"` section and add `"mcpServers"`:
+Find the `"Tools"` section and add `"McpServers"`:
 
 ```json
 {
-  "providers": {
+  "Providers": {
     ...existing settings...
   },
-  "defaults": {
+  "Defaults": {
     ...existing settings...
   },
-  "tools": {
-    "imageSource": "Auto",
-    "webSource": "Auto",
-    "safeSearch": true,
-    "mcpServers": [
+  "Tools": {
+    "ImageSource": "Auto",
+    "WebSource": "Auto",
+    "SafeSearch": true,
+    "McpServers": [
       {
-        "name": "My Files",
-        "command": "npx",
-        "arguments": "-y @modelcontextprotocol/server-filesystem C:\\Users\\YourName\\Documents",
-        "enabled": true
+        "Name": "My Files",
+        "Command": "npx",
+        "Arguments": "-y @modelcontextprotocol/server-filesystem C:\\Users\\YourName\\Documents",
+        "Enabled": true
       }
     ]
   }
 }
 ```
+
+**Keep the existing keys as they are** — SNChat writes this file in PascalCase
+(`Tools`, `McpServers`, `Name`). Matching that style keeps the file consistent
+with what the app writes back when you change a setting in the UI.
 
 **Important**: Replace `C:\\Users\\YourName\\Documents` with the folder you want the AI to access.
 
@@ -165,32 +171,32 @@ The AI can **read, write, and delete** files in the folder you configure. Pick a
 Want to give AI access to multiple folders? Configure multiple servers:
 
 ```json
-"mcpServers": [
+"McpServers": [
   {
-    "name": "Work Docs",
-    "command": "npx",
-    "arguments": "-y @modelcontextprotocol/server-filesystem C:\\workspace\\docs",
-    "enabled": true
+    "Name": "Work Docs",
+    "Command": "npx",
+    "Arguments": "-y @modelcontextprotocol/server-filesystem C:\\workspace\\docs",
+    "Enabled": true
   },
   {
-    "name": "Scripts",
-    "command": "npx",
-    "arguments": "-y @modelcontextprotocol/server-filesystem C:\\scripts",
-    "enabled": true
+    "Name": "Scripts",
+    "Command": "npx",
+    "Arguments": "-y @modelcontextprotocol/server-filesystem C:\\scripts",
+    "Enabled": true
   }
 ]
 ```
 
 ### Disable a Server
 
-Set `"enabled": false` to turn off a server without deleting the config:
+Set `"Enabled": false` to turn off a server without deleting the config:
 
 ```json
 {
-  "name": "My Files",
-  "command": "npx",
-  "arguments": "-y @modelcontextprotocol/server-filesystem C:\\workspace",
-  "enabled": false
+  "Name": "My Files",
+  "Command": "npx",
+  "Arguments": "-y @modelcontextprotocol/server-filesystem C:\\workspace",
+  "Enabled": false
 }
 ```
 
@@ -227,10 +233,10 @@ npm install -g @modelcontextprotocol/server-git
 **Configure:**
 ```json
 {
-  "name": "My Project Git",
-  "command": "npx",
-  "arguments": "-y @modelcontextprotocol/server-git --repository C:\\projects\\my-repo",
-  "enabled": true
+  "Name": "My Project Git",
+  "Command": "npx",
+  "Arguments": "-y @modelcontextprotocol/server-git --repository C:\\projects\\my-repo",
+  "Enabled": true
 }
 ```
 
@@ -252,10 +258,10 @@ npm install -g @modelcontextprotocol/server-sqlite
 **Configure:**
 ```json
 {
-  "name": "App Database",
-  "command": "npx",
-  "arguments": "-y @modelcontextprotocol/server-sqlite --db-path C:\\data\\app.db",
-  "enabled": true
+  "Name": "App Database",
+  "Command": "npx",
+  "Arguments": "-y @modelcontextprotocol/server-sqlite --db-path C:\\data\\app.db",
+  "Enabled": true
 }
 ```
 
@@ -278,7 +284,9 @@ Browse community MCP servers:
 
 **Problem**: The `mcpServers` array is missing or empty.
 
-**Solution**: Add it to `settings.json` under the `"tools"` section.
+**Solution**: Add it to `settings.json` under the `"Tools"` section. Double-check
+you edited `%APPDATA%\SNChat\config\settings.json` — the `config` subfolder, not
+the `SNChat` folder itself.
 
 ### Server won't start
 
@@ -330,57 +338,57 @@ Here's a complete `settings.json` with multiple MCP servers:
 
 ```json
 {
-  "providers": {
-    "freeTokenApiKey": "",
-    "openRouterApiKey": "",
-    "anthropicApiKey": "",
-    "openAIApiKey": "",
-    "googleApiKey": "",
-    "googleSearchEngineId": ""
+  "Providers": {
+    "FreeTokenApiKey": "",
+    "OpenRouterApiKey": "",
+    "AnthropicApiKey": "",
+    "OpenAIApiKey": "",
+    "GoogleApiKey": "",
+    "GoogleSearchEngineId": ""
   },
-  "defaults": {
-    "temperature": 0.7,
-    "maxTokens": 2048,
-    "topP": 0.9,
-    "defaultProvider": "Ollama",
-    "defaultModel": ""
+  "Defaults": {
+    "Temperature": 0.7,
+    "MaxTokens": 2048,
+    "TopP": 0.9,
+    "DefaultProvider": "Ollama",
+    "DefaultModel": ""
   },
-  "tools": {
-    "imageSource": "Auto",
-    "webSource": "Auto",
-    "safeSearch": true,
-    "mcpServers": [
+  "Tools": {
+    "ImageSource": "Auto",
+    "WebSource": "Auto",
+    "SafeSearch": true,
+    "McpServers": [
       {
-        "name": "Workspace Files",
-        "command": "npx",
-        "arguments": "-y @modelcontextprotocol/server-filesystem C:\\workspace",
-        "enabled": true
+        "Name": "Workspace Files",
+        "Command": "npx",
+        "Arguments": "-y @modelcontextprotocol/server-filesystem C:\\workspace",
+        "Enabled": true
       },
       {
-        "name": "Project Git",
-        "command": "npx",
-        "arguments": "-y @modelcontextprotocol/server-git --repository C:\\workspace\\myproject",
-        "enabled": true
+        "Name": "Project Git",
+        "Command": "npx",
+        "Arguments": "-y @modelcontextprotocol/server-git --repository C:\\workspace\\myproject",
+        "Enabled": true
       },
       {
-        "name": "Database",
-        "command": "npx",
-        "arguments": "-y @modelcontextprotocol/server-sqlite --db-path C:\\data\\app.db",
-        "enabled": false
+        "Name": "Database",
+        "Command": "npx",
+        "Arguments": "-y @modelcontextprotocol/server-sqlite --db-path C:\\data\\app.db",
+        "Enabled": false
       }
     ]
   },
-  "ui": {
-    "theme": "Light",
-    "fontSize": 14,
-    "showTimestamps": true,
-    "enableMarkdown": true,
-    "sidebarWidth": 300
+  "UI": {
+    "Theme": "Light",
+    "FontSize": 14,
+    "ShowTimestamps": true,
+    "EnableMarkdown": true,
+    "SidebarWidth": 300
   },
-  "storage": {
-    "conversationsPath": "",
-    "autoSave": true,
-    "maxConversationsToKeep": 1000
+  "Storage": {
+    "ConversationsPath": "",
+    "AutoSave": true,
+    "MaxConversationsToKeep": 1000
   }
 }
 ```

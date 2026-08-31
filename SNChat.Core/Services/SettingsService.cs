@@ -5,6 +5,22 @@ namespace SNChat.Core.Services;
 
 public class SettingsService
 {
+    /// <summary>
+    /// Settings are hand-edited to configure things the UI does not expose yet,
+    /// such as MCP servers. Case-insensitive matching means a hand-written
+    /// "mcpServers" binds as readily as the "McpServers" we serialize, instead
+    /// of silently deserializing to the default and looking like no config at all.
+    /// </summary>
+    private static readonly JsonSerializerOptions ReadOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
+    private static readonly JsonSerializerOptions WriteOptions = new()
+    {
+        WriteIndented = true
+    };
+
     private readonly string _settingsPath;
     private AppSettings? _cachedSettings;
 
@@ -31,8 +47,8 @@ public class SettingsService
         try
         {
             var json = await File.ReadAllTextAsync(_settingsPath);
-            _cachedSettings = JsonSerializer.Deserialize<AppSettings>(json,
-                new JsonSerializerOptions { WriteIndented = true }) ?? new AppSettings();
+            _cachedSettings = JsonSerializer.Deserialize<AppSettings>(json, ReadOptions)
+                ?? new AppSettings();
             return _cachedSettings;
         }
         catch
@@ -45,8 +61,7 @@ public class SettingsService
     public async Task SaveSettingsAsync(AppSettings settings)
     {
         _cachedSettings = settings;
-        var json = JsonSerializer.Serialize(settings,
-            new JsonSerializerOptions { WriteIndented = true });
+        var json = JsonSerializer.Serialize(settings, WriteOptions);
         await File.WriteAllTextAsync(_settingsPath, json);
     }
 
