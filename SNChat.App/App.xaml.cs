@@ -127,16 +127,22 @@ public partial class App : Application
         {
             var registry = new ToolRegistry(sp.GetRequiredService<ILogger<ToolRegistry>>());
 
-            // WebSearchTool and ImageSearchTool are deliberately not registered.
-            // Every backend they can reach is gone: Bing's API retired in 2025,
-            // Google's Custom Search JSON API is closed to new projects and ends
-            // in January 2027, and the DuckDuckGo endpoint only ever answered
-            // for encyclopedic entities. They return nothing, but the model
-            // cannot tell them apart from the working MCP search and has been
-            // seen calling both in one turn, spending its tool budget on calls
-            // that cannot succeed. Search now comes from an MCP server; see
-            // MCP_AND_SEARCH_RUNBOOK.md. They stay in the container so
-            // re-registering is a one-line change if a backend revives.
+            // WebSearchTool stays unregistered. Its backends are gone - Bing's
+            // API retired in 2025, Google's Custom Search JSON API is closed to
+            // new projects and ends in January 2027, and the DuckDuckGo endpoint
+            // only ever answered for encyclopedic entities - and the model
+            // cannot tell a dead tool from the working MCP search, so it spent
+            // its budget on calls that could not succeed. Web search comes from
+            // an MCP server instead; see MCP_AND_SEARCH_RUNBOOK.md.
+            //
+            // ImageSearchTool is registered, because that reasoning never
+            // applied to it: Wikimedia Commons needs no key and still answers,
+            // and it falls back there when Google is unset or out of quota.
+            // Without it the model has no way to find a picture and answers
+            // anyway - inventing Wikimedia URLs that are correctly formed and
+            // point at nothing. Nothing else here can search for an image.
+            registry.Register(sp.GetRequiredService<ImageSearchTool>());
+
             return registry;
         });
 
