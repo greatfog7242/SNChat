@@ -17,8 +17,37 @@ public class StdioTransport : IDisposable
     private readonly Task _readTask;
     private readonly CancellationTokenSource _cts = new();
 
-    private readonly Dictionary<object, TaskCompletionSource<JsonRpcResponse>> _pendingRequests = new();
+    /// <summary>
+    /// Keyed by the request id rendered as text rather than by the id object
+    /// itself. Outgoing ids are boxed ints, but an incoming id deserializes into
+    /// object? as a JsonElement, and a JsonElement never compares equal to a
+    /// boxed int. Keying on the objects would mean every response is read,
+    /// matched against nothing, and discarded, leaving the caller waiting until
+    /// it times out.
+    /// </summary>
+    private readonly Dictionary<string, TaskCompletionSource<JsonRpcResponse>> _pendingRequests = new();
     private readonly object _lock = new();
+
+    /// <summary>
+    /// Renders a JSON-RPC id as a stable key. The spec allows numbers or
+    /// strings, and a server may echo the id back in either form.
+    /// </summary>
+    private static string IdKey(object? id) => id switch
+    {
+        null => string.Empty,
+        JsonElement e when e.ValueKind == JsonValueKind.String => e.GetString() ?? string.Empty,
+        JsonElement e => e.GetRawText(),
+        _ => id.ToString() ?? string.Empty
+    };
+
+    /// <summary>
+    /// UTF-8 without a byte order mark. Encoding.UTF8 emits a BOM, which would
+    /// prefix the first line we write with U+FEFF and make it invalid JSON. The
+    /// server discards that line and never answers the initialize request, so
+    /// the handshake hangs until it times out with nothing on stderr to explain
+    /// why.
+    /// </summary>
+    private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
     public event EventHandler<JsonRpcNotification>? NotificationReceived;
     public event EventHandler<string>? ErrorReceived;
@@ -27,15 +56,15 @@ public class StdioTransport : IDisposable
     {
         var startInfo = new ProcessStartInfo
         {
-            FileName = command,
+            FileName = ResolveCommand(command),
             Arguments = arguments,
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardInputEncoding = Encoding.UTF8
+            StandardOutputEncoding = Utf8NoBom,
+            StandardInputEncoding = Utf8NoBom
         };
 
         _process = new Process { StartInfo = startInfo };
@@ -56,6 +85,59 @@ public class StdioTransport : IDisposable
         _readTask = Task.Run(ReadMessagesAsync, _cts.Token);
     }
 
+    /// <summary>
+    /// Finds the executable a bare command name refers to.
+    ///
+    /// Starting a process with UseShellExecute disabled goes straight to
+    /// CreateProcess, which does not consult PATHEXT. The MCP servers people
+    /// actually configure are reached through batch shims on Windows - npx is
+    /// npx.cmd, uvx is uvx.exe - so a config saying "npx" fails with "the system
+    /// cannot find the file specified" unless the extension is filled in here.
+    /// Requiring "npx.cmd" in the config instead would be a platform detail
+    /// leaking into every user's settings file, and would not match the command
+    /// every MCP server's own README tells them to use.
+    ///
+    /// Returns the command unchanged when it cannot be resolved, so the failure
+    /// still surfaces as the normal Win32Exception rather than something opaque.
+    /// </summary>
+    private static string ResolveCommand(string command)
+    {
+        if (!OperatingSystem.IsWindows())
+            return command;
+
+        // An explicit path or extension is already unambiguous.
+        if (Path.IsPathRooted(command) || Path.HasExtension(command))
+            return command;
+
+        var extensions = (Environment.GetEnvironmentVariable("PATHEXT") ?? ".COM;.EXE;.BAT;.CMD")
+            .Split(';', StringSplitOptions.RemoveEmptyEntries);
+
+        var searchPaths = (Environment.GetEnvironmentVariable("PATH") ?? string.Empty)
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (var directory in searchPaths)
+        {
+            foreach (var extension in extensions)
+            {
+                string candidate;
+                try
+                {
+                    candidate = Path.Combine(directory.Trim(), command + extension);
+                }
+                catch (ArgumentException)
+                {
+                    // PATH entries with invalid characters are not worth failing over.
+                    break;
+                }
+
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+        }
+
+        return command;
+    }
+
     /// <summary>Send a JSON-RPC request and wait for the response.</summary>
     public async Task<JsonRpcResponse> SendRequestAsync(JsonRpcRequest request, CancellationToken cancellationToken = default)
     {
@@ -63,7 +145,7 @@ public class StdioTransport : IDisposable
 
         lock (_lock)
         {
-            _pendingRequests[request.Id!] = tcs;
+            _pendingRequests[IdKey(request.Id)] = tcs;
         }
 
         try
@@ -79,7 +161,7 @@ public class StdioTransport : IDisposable
         {
             lock (_lock)
             {
-                _pendingRequests.Remove(request.Id!);
+                _pendingRequests.Remove(IdKey(request.Id));
             }
             throw;
         }
@@ -125,10 +207,11 @@ public class StdioTransport : IDisposable
                         if (response?.Id != null)
                         {
                             TaskCompletionSource<JsonRpcResponse>? tcs;
+                            var key = IdKey(response.Id);
                             lock (_lock)
                             {
-                                _pendingRequests.TryGetValue(response.Id, out tcs);
-                                _pendingRequests.Remove(response.Id);
+                                _pendingRequests.TryGetValue(key, out tcs);
+                                _pendingRequests.Remove(key);
                             }
                             tcs?.TrySetResult(response);
                         }

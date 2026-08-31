@@ -165,49 +165,42 @@ public partial class SettingsViewModel : ObservableObject
     {
         try
         {
-            var settings = new AppSettings
-            {
-                Providers = new ProviderSettings
-                {
-                    FreeTokenApiKey = FreeTokenApiKey,
-                    FreeTokenBaseUrl = FreeTokenBaseUrl,
-                    OpenRouterApiKey = OpenRouterApiKey,
-                    OpenRouterBaseUrl = OpenRouterBaseUrl,
-                    AnthropicApiKey = AnthropicApiKey,
-                    OpenAIApiKey = OpenAIApiKey,
-                    GoogleApiKey = GoogleApiKey,
-                    GoogleSearchEngineId = GoogleSearchEngineId
-                },
-                Tools = new ToolSettings
-                {
-                    ImageSource = ImageSource,
-                    FallbackToCommons = FallbackToCommons,
-                    WebSource = WebSource,
-                    SafeSearch = SafeSearch
-                },
-                Defaults = new DefaultParameters
-                {
-                    Temperature = DefaultTemperature,
-                    MaxTokens = DefaultMaxTokens,
-                    TopP = DefaultTopP,
-                    DefaultProvider = DefaultProvider,
-                    DefaultModel = DefaultModel
-                },
-                UI = new UIPreferences
-                {
-                    Theme = Theme,
-                    FontSize = FontSize,
-                    ShowTimestamps = ShowTimestamps,
-                    EnableMarkdown = EnableMarkdown,
-                    SidebarWidth = SidebarWidth
-                },
-                Storage = new StorageSettings
-                {
-                    ConversationsPath = ConversationsPath,
-                    AutoSave = AutoSave,
-                    MaxConversationsToKeep = MaxConversationsToKeep
-                }
-            };
+            // Start from what is already on disk and overwrite only the fields
+            // this window owns. Building a fresh AppSettings would silently drop
+            // anything the UI does not surface - McpServers is hand-written and
+            // has no editor, so constructing a new ToolSettings would reset it to
+            // empty and destroy the user's MCP configuration on every save.
+            var settings = _settingsService.GetCachedSettings();
+
+            settings.Providers.FreeTokenApiKey = FreeTokenApiKey;
+            settings.Providers.FreeTokenBaseUrl = FreeTokenBaseUrl;
+            settings.Providers.OpenRouterApiKey = OpenRouterApiKey;
+            settings.Providers.OpenRouterBaseUrl = OpenRouterBaseUrl;
+            settings.Providers.AnthropicApiKey = AnthropicApiKey;
+            settings.Providers.OpenAIApiKey = OpenAIApiKey;
+            settings.Providers.GoogleApiKey = GoogleApiKey;
+            settings.Providers.GoogleSearchEngineId = GoogleSearchEngineId;
+
+            settings.Tools.ImageSource = ImageSource;
+            settings.Tools.FallbackToCommons = FallbackToCommons;
+            settings.Tools.WebSource = WebSource;
+            settings.Tools.SafeSearch = SafeSearch;
+
+            settings.Defaults.Temperature = DefaultTemperature;
+            settings.Defaults.MaxTokens = DefaultMaxTokens;
+            settings.Defaults.TopP = DefaultTopP;
+            settings.Defaults.DefaultProvider = DefaultProvider;
+            settings.Defaults.DefaultModel = DefaultModel;
+
+            settings.UI.Theme = Theme;
+            settings.UI.FontSize = FontSize;
+            settings.UI.ShowTimestamps = ShowTimestamps;
+            settings.UI.EnableMarkdown = EnableMarkdown;
+            settings.UI.SidebarWidth = SidebarWidth;
+
+            settings.Storage.ConversationsPath = ConversationsPath;
+            settings.Storage.AutoSave = AutoSave;
+            settings.Storage.MaxConversationsToKeep = MaxConversationsToKeep;
 
             await _settingsService.SaveSettingsAsync(settings);
             HasUnsavedChanges = false;
