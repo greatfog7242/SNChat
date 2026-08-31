@@ -86,3 +86,7 @@ artifacts/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Published executables
+publish/
+release/

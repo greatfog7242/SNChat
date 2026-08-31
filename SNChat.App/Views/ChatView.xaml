@@ -216,11 +216,6 @@
                             Padding="10,5"
                             Margin="0,0,10,0"
                             ToolTip="Start a new conversation (Ctrl+N)"/>
-                    <Button Content="Cancel"
-                            Command="{Binding CancelGenerationCommand}"
-                            Padding="10,5"
-                            Margin="0,0,10,0"
-                            IsEnabled="{Binding IsStreaming}"/>
                     <Button Content="📋 Templates"
                             Click="TemplatesButton_Click"
                             Padding="10,5"
@@ -382,42 +377,47 @@
                          two without also swallowing the newline case. -->
                 </TextBox>
 
-                <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,5,0,0">
-                    <TextBlock Text="Enter to send · Shift+Enter for a new line"
-                               VerticalAlignment="Center"
-                               Margin="0,0,10,0"
-                               FontSize="11"
-                               Opacity="0.6"/>
-                    <Button Content="Send"
-                            Command="{Binding SendMessageCommand}"
-                            Padding="20,8"
-                            FontWeight="SemiBold"
-                            IsEnabled="{Binding IsStreaming, Converter={StaticResource InverseBooleanConverter}}"/>
-                </StackPanel>
-
-                <!-- Streaming indicator overlay on input area -->
-                <Border Grid.Row="0"
-                        Grid.RowSpan="3"
-                        Background="#80000000"
-                        Visibility="{Binding IsStreaming, Converter={StaticResource BooleanToVisibilityConverter}}"
-                        CornerRadius="4">
-                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                        <TextBlock Text="⏳ Generating response..."
-                                   Foreground="White"
-                                   FontSize="14"
-                                   FontWeight="SemiBold"
-                                   HorizontalAlignment="Center"/>
-                        <TextBlock Text="{Binding StatusMessage}"
-                                   Foreground="#FFD966"
-                                   FontSize="12"
-                                   HorizontalAlignment="Center"
-                                   Margin="0,6,0,0"/>
-                        <ProgressBar IsIndeterminate="True"
-                                     Width="200"
-                                     Height="4"
-                                     Margin="0,10,0,0"/>
+                <Grid Grid.Row="2" Margin="0,5,0,0">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
+                        <!-- Compact streaming indicator -->
+                        <StackPanel Orientation="Horizontal"
+                                    Visibility="{Binding IsStreaming, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                    VerticalAlignment="Center">
+                            <TextBlock Text="⏳" FontSize="12" Margin="0,0,4,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="Generating..."
+                                       FontSize="11"
+                                       FontWeight="SemiBold"
+                                       Foreground="#2196F3"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,8,0"/>
+                            <TextBlock Text="{Binding StatusMessage}"
+                                       FontSize="10"
+                                       Foreground="#666666"
+                                       VerticalAlignment="Center"
+                                       MaxWidth="200"
+                                       TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
                     </StackPanel>
-                </Border>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <TextBlock Text="Enter to send · Shift+Enter for a new line"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,10,0"
+                                   FontSize="11"
+                                   Opacity="0.6"/>
+                        <Button Content="Cancel"
+                                Command="{Binding CancelGenerationCommand}"
+                                Padding="20,8"
+                                Margin="0,0,10,0"
+                                FontWeight="SemiBold"
+                                IsEnabled="{Binding IsStreaming}"/>
+                        <Button Content="Send"
+                                Command="{Binding SendMessageCommand}"
+                                Padding="20,8"
+                                FontWeight="SemiBold"
+                                IsEnabled="{Binding IsStreaming, Converter={StaticResource InverseBooleanConverter}}"/>
+                    </StackPanel>
+                </Grid>
             </Grid>
         </Border>
     </Grid>

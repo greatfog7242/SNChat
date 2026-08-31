@@ -184,6 +184,10 @@ public partial class ChatViewModel : ObservableObject
         PendingAttachments.Clear();
         OnPropertyChanged(nameof(HasPendingAttachments));
 
+        // Save conversation immediately after user message so it appears in the list
+        // even if generation is cancelled or fails
+        await SaveConversationAsync();
+
         await GenerateResponseAsync(typed);
     }
 
@@ -479,9 +483,39 @@ public partial class ChatViewModel : ObservableObject
                     var firstUserMessage = CurrentConversation.Messages.FirstOrDefault(m => m.Role == MessageRole.User);
                     if (firstUserMessage != null)
                     {
-                        var title = firstUserMessage.Content.Length > 50
-                            ? firstUserMessage.Content.Substring(0, 47) + "..."
-                            : firstUserMessage.Content;
+                        // For messages with attachments, generate a better title
+                        string titleContent;
+                        if (firstUserMessage.Attachments.Count > 0)
+                        {
+                            // Remove attachment context block to get just the user's text
+                            var content = firstUserMessage.Content;
+                            var lines = content.Split('\n');
+                            var userText = string.Join(" ", lines.Where(l =>
+                                !l.StartsWith("---") &&
+                                !l.StartsWith("```") &&
+                                !string.IsNullOrWhiteSpace(l))).Trim();
+
+                            // If no user text, use attachment filename
+                            if (string.IsNullOrWhiteSpace(userText))
+                            {
+                                var firstAttachment = firstUserMessage.Attachments[0];
+                                titleContent = firstAttachment.Type == AttachmentType.Image
+                                    ? $"Image: {firstAttachment.FileName}"
+                                    : $"File: {firstAttachment.FileName}";
+                            }
+                            else
+                            {
+                                titleContent = userText;
+                            }
+                        }
+                        else
+                        {
+                            titleContent = firstUserMessage.Content;
+                        }
+
+                        var title = titleContent.Length > 50
+                            ? titleContent.Substring(0, 47) + "..."
+                            : titleContent;
                         CurrentConversation.Title = title;
                     }
                 }
