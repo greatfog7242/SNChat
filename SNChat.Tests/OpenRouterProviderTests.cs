@@ -357,6 +357,58 @@ public class OpenRouterProviderTests
         Assert.Equal(431, final.Metadata.EvalCount);
     }
 
+    /// <summary>
+    /// OpenRouter breaks out reasoning tokens and the charge, which Ollama does
+    /// not report at all - so these are the only place the split is real rather
+    /// than estimated.
+    /// </summary>
+    [Fact]
+    public async Task Usage_carries_reasoning_tokens_and_cost_when_reported()
+    {
+        var sse = string.Join("\n", new[]
+        {
+            """data: {"choices":[{"delta":{"content":"hi"}}]}""",
+            """data: {"choices":[],"usage":{"prompt_tokens":6506,"completion_tokens":431,"completion_tokens_details":{"reasoning_tokens":380},"cost":0.0032}}""",
+            "data: [DONE]",
+            "",
+        });
+
+        StreamChunk? final = null;
+        await foreach (var chunk in Provider(sse).GenerateStreamAsync(NewRequest()))
+        {
+            if (chunk.IsFinal)
+                final = chunk;
+        }
+
+        Assert.Equal(380, final!.Metadata!.ReasoningTokens);
+        Assert.Equal(0.0032m, final.Metadata.Cost);
+    }
+
+    /// <summary>
+    /// A model that does no reasoning omits the detail block entirely. That
+    /// must stay null so the UI can say "n/a" rather than claim zero thinking.
+    /// </summary>
+    [Fact]
+    public async Task Absent_reasoning_and_cost_stay_null()
+    {
+        var sse = string.Join("\n", new[]
+        {
+            """data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5}}""",
+            "data: [DONE]",
+            "",
+        });
+
+        StreamChunk? final = null;
+        await foreach (var chunk in Provider(sse).GenerateStreamAsync(NewRequest()))
+        {
+            if (chunk.IsFinal)
+                final = chunk;
+        }
+
+        Assert.Null(final!.Metadata!.ReasoningTokens);
+        Assert.Null(final.Metadata.Cost);
+    }
+
     [Fact]
     public async Task Missing_api_key_is_reported_rather_than_sent()
     {

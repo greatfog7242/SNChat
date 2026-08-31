@@ -87,9 +87,13 @@ public partial class ChatViewModel : ObservableObject
         var input = metadata?.TotalPromptTokens ?? 0;
         var output = metadata?.TotalCompletionTokens ?? 0;
 
+        var cost = metadata?.TotalCost.HasValue == true
+            ? $"${metadata.TotalCost!.Value:0.######}"
+            : "cost n/a";
+
         ConversationTokenSummary = input == 0 && output == 0
             ? string.Empty
-            : $"{input:N0} in · {output:N0} out";
+            : $"{input:N0} in · {output:N0} out · {cost}";
 
         OnPropertyChanged(nameof(HasConversationTokens));
     }
@@ -594,6 +598,8 @@ public partial class ChatViewModel : ObservableObject
                     completionTokens = chunk.Metadata.EvalCount;
 
                     assistantMessage.CompletionTokens = chunk.Metadata.EvalCount;
+                    assistantMessage.ReasoningTokens = chunk.Metadata.ReasoningTokens;
+                    assistantMessage.Cost = chunk.Metadata.Cost;
 
                     // The prompt count arrives with the reply but describes the
                     // input, so it belongs on the message that prompted it.
@@ -605,6 +611,13 @@ public partial class ChatViewModel : ObservableObject
                     {
                         CurrentConversation.Metadata.TotalPromptTokens += chunk.Metadata.PromptEvalCount ?? 0;
                         CurrentConversation.Metadata.TotalCompletionTokens += chunk.Metadata.EvalCount ?? 0;
+
+                        if (chunk.Metadata.Cost.HasValue)
+                        {
+                            CurrentConversation.Metadata.TotalCost =
+                                (CurrentConversation.Metadata.TotalCost ?? 0m) + chunk.Metadata.Cost.Value;
+                        }
+
                         UpdateConversationTokenSummary();
                     }
 

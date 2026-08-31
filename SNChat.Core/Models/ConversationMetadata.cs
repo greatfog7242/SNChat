@@ -17,6 +17,13 @@ public class ConversationMetadata
     public int TotalPromptTokens { get; set; }
     public int TotalCompletionTokens { get; set; }
 
+    /// <summary>
+    /// Charge accumulated in USD. Stays null while nothing has reported a cost,
+    /// which distinguishes a conversation run entirely on local models from one
+    /// that genuinely cost nothing.
+    /// </summary>
+    public decimal? TotalCost { get; set; }
+
     public ConversationMetadata Clone()
     {
         return new ConversationMetadata
@@ -27,7 +34,8 @@ public class ConversationMetadata
             Tags = new List<string>(Tags),
             CustomData = new Dictionary<string, object>(CustomData),
             TotalPromptTokens = TotalPromptTokens,
-            TotalCompletionTokens = TotalCompletionTokens
+            TotalCompletionTokens = TotalCompletionTokens,
+            TotalCost = TotalCost
         };
     }
 }

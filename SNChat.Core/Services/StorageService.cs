@@ -159,6 +159,7 @@ public class StorageService : IStorageService
             tags = conversation.Metadata.Tags,
             total_prompt_tokens = conversation.Metadata.TotalPromptTokens,
             total_completion_tokens = conversation.Metadata.TotalCompletionTokens,
+            total_cost = conversation.Metadata.TotalCost,
             parameters = new
             {
                 temperature = conversation.Metadata.Parameters.Temperature,
@@ -179,12 +180,8 @@ public class StorageService : IStorageService
         for (int i = 0; i < conversation.Messages.Count; i++)
         {
             var message = conversation.Messages[i];
-            // Normalised to UTC on the way out, so the stored value cannot
-            // depend on the timezone of the machine that wrote it.
-            var timestamp = message.Timestamp.ToUniversalTime().ToString(
-                "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
 
-            sb.AppendLine($"## Message {i + 1} ({message.Role}) - {timestamp}");
+            sb.AppendLine(MessageHeader.Format(i + 1, message));
             sb.AppendLine(message.Content);
             sb.AppendLine();
         }
@@ -243,6 +240,18 @@ public class StorageService : IStorageService
         if (frontmatter.ContainsKey("total_completion_tokens"))
             conversation.Metadata.TotalCompletionTokens = Convert.ToInt32(frontmatter["total_completion_tokens"]);
 
+        // Left null when absent or blank, so "no provider ever reported a cost"
+        // stays distinguishable from "cost nothing".
+        if (frontmatter.ContainsKey("total_cost"))
+        {
+            var raw = frontmatter["total_cost"]?.ToString();
+            if (!string.IsNullOrWhiteSpace(raw) &&
+                decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var cost))
+            {
+                conversation.Metadata.TotalCost = cost;
+            }
+        }
+
         // Parse parameters
         if (frontmatter.ContainsKey("parameters") && frontmatter["parameters"] is Dictionary<object, object> paramsDict)
         {
@@ -273,34 +282,21 @@ public class StorageService : IStorageService
             var header = lines[0];
             var messageContent = lines[1].Trim();
 
-            // Extract role from header
-            var roleMatch = System.Text.RegularExpressions.Regex.Match(header, @"\((\w+)\)");
-            if (!roleMatch.Success)
+            if (!MessageHeader.TryParse(header, out var role, out var timestamp, out var facts))
                 continue;
-
-            var roleStr = roleMatch.Groups[1].Value;
-            if (!Enum.TryParse<MessageRole>(roleStr, true, out var role))
-                continue;
-
-            // Extract timestamp
-            // The stored form carries no timezone marker, so a plain Parse
-            // returns Unspecified - which ToLocalTime() treats as already local
-            // and leaves untouched, displaying UTC. Everything written here has
-            // always been UTC, so say so and convert to it.
-            var timestampMatch = System.Text.RegularExpressions.Regex.Match(header, @"- (.+)$");
-            var timestamp = timestampMatch.Success
-                ? DateTime.Parse(
-                    timestampMatch.Groups[1].Value,
-                    CultureInfo.InvariantCulture,
-                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal)
-                : DateTime.UtcNow;
 
             conversation.Messages.Add(new Message
             {
                 Role = role,
                 Content = messageContent,
                 Timestamp = timestamp,
-                Index = i
+                Index = i,
+                Provider = facts.Provider,
+                ModelName = facts.ModelName,
+                PromptTokens = facts.PromptTokens,
+                CompletionTokens = facts.CompletionTokens,
+                ReasoningTokens = facts.ReasoningTokens,
+                Cost = facts.Cost
             });
         }
 

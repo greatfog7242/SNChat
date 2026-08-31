@@ -8,6 +8,8 @@ public class Message : INotifyPropertyChanged
     private string _content = string.Empty;
     private int? _promptTokens;
     private int? _completionTokens;
+    private int? _reasoningTokens;
+    private decimal? _cost;
 
     public Guid Id { get; set; } = Guid.NewGuid();
     public MessageRole Role { get; set; }
@@ -97,12 +99,66 @@ public class Message : INotifyPropertyChanged
 
     public bool HasModelSummary => !string.IsNullOrEmpty(ModelName);
 
-    /// <summary>Reads as "3,659 in" or "2,000 out"; empty when unmeasured.</summary>
-    public string TokenSummary => PromptTokens.HasValue
-        ? $"{PromptTokens.Value:N0} in"
-        : CompletionTokens.HasValue
-            ? $"{CompletionTokens.Value:N0} out"
-            : string.Empty;
+    /// <summary>
+    /// Reasoning tokens included in <see cref="CompletionTokens"/>. Null means
+    /// the provider does not report the split, which is shown as "n/a" rather
+    /// than hidden, so an absent figure is not mistaken for zero thinking.
+    /// </summary>
+    public int? ReasoningTokens
+    {
+        get => _reasoningTokens;
+        set
+        {
+            if (_reasoningTokens == value)
+                return;
+
+            _reasoningTokens = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(TokenSummary));
+        }
+    }
+
+    /// <summary>Charge for this reply in USD; null where the provider is free or silent.</summary>
+    public decimal? Cost
+    {
+        get => _cost;
+        set
+        {
+            if (_cost == value)
+                return;
+
+            _cost = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(TokenSummary));
+        }
+    }
+
+    /// <summary>
+    /// "3,659 in" for a prompt, or for a reply the total with its split and
+    /// charge: "2,000 out · 1,842 thinking + 158 response · $0.0032", with
+    /// "n/a" where the provider reports neither.
+    /// </summary>
+    public string TokenSummary
+    {
+        get
+        {
+            if (PromptTokens.HasValue)
+                return $"{PromptTokens.Value:N0} in";
+
+            if (!CompletionTokens.HasValue)
+                return string.Empty;
+
+            var total = CompletionTokens.Value;
+
+            var split = ReasoningTokens.HasValue
+                ? $"{ReasoningTokens.Value:N0} thinking + {total - ReasoningTokens.Value:N0} response"
+                : "thinking n/a";
+
+            var cost = Cost.HasValue ? $"${Cost.Value:0.######}" : "cost n/a";
+
+            return $"{total:N0} out · {split} · {cost}";
+        }
+    }
 
     public bool HasTokenSummary => PromptTokens.HasValue || CompletionTokens.HasValue;
 
@@ -134,6 +190,8 @@ public class Message : INotifyPropertyChanged
             Index = Index,
             PromptTokens = PromptTokens,
             CompletionTokens = CompletionTokens,
+            ReasoningTokens = ReasoningTokens,
+            Cost = Cost,
             Provider = Provider,
             ModelName = ModelName
         };

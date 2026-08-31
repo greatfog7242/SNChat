@@ -503,7 +503,9 @@ public class OpenRouterProvider : BaseLLMProvider
                         Metadata = usage == null ? null : new StreamMetadata
                         {
                             PromptEvalCount = usage.PromptTokens,
-                            EvalCount = usage.CompletionTokens
+                            EvalCount = usage.CompletionTokens,
+                            ReasoningTokens = usage.CompletionTokensDetails?.ReasoningTokens,
+                            Cost = usage.Cost
                         }
                     }
                 };

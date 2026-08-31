@@ -187,8 +187,22 @@ public class OpenRouterUsage
     [JsonPropertyName("prompt_tokens")]
     public int PromptTokens { get; set; }
 
+    /// <summary>Includes reasoning tokens, which are broken out separately.</summary>
     [JsonPropertyName("completion_tokens")]
     public int CompletionTokens { get; set; }
+
+    [JsonPropertyName("completion_tokens_details")]
+    public OpenRouterCompletionDetails? CompletionTokensDetails { get; set; }
+
+    /// <summary>Charge for the request in USD.</summary>
+    [JsonPropertyName("cost")]
+    public decimal? Cost { get; set; }
+}
+
+public class OpenRouterCompletionDetails
+{
+    [JsonPropertyName("reasoning_tokens")]
+    public int? ReasoningTokens { get; set; }
 }
 
 // Models list
