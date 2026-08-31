@@ -18,4 +18,20 @@ public class ToolParameterProperty
 
     /// <summary>Optional allowed values, emitted as JSON Schema "enum".</summary>
     public List<string>? Enum { get; set; }
+
+    /// <summary>
+    /// Element schema for Type == "array". Required by JSON Schema, and Gemini
+    /// rejects the whole request with INVALID_ARGUMENT when an array parameter
+    /// arrives without it, so an array property must always carry one.
+    /// </summary>
+    public ToolParameterProperty? Items { get; set; }
+
+    /// <summary>
+    /// Field schemas for Type == "object". Without these a nested object is
+    /// described only as "object" and the model has to guess its shape.
+    /// </summary>
+    public Dictionary<string, ToolParameterProperty>? Properties { get; set; }
+
+    /// <summary>Names of required fields, when this property is an object.</summary>
+    public List<string>? Required { get; set; }
 }

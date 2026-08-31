@@ -23,6 +23,7 @@
   <ItemGroup>
     <ProjectReference Include="..\SNChat.Core\SNChat.Core.csproj" />
     <ProjectReference Include="..\SNChat.LLM\SNChat.LLM.csproj" />
+    <ProjectReference Include="..\SNChat.MCP\SNChat.MCP.csproj" />
   </ItemGroup>
 
 </Project>

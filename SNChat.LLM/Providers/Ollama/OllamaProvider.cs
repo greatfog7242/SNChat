@@ -469,19 +469,7 @@ public class OllamaProvider : BaseLLMProvider
         {
             Name = tool.Name,
             Description = tool.Description,
-            Parameters = new
-            {
-                type = tool.Parameters.Type,
-                properties = tool.Parameters.Properties.ToDictionary(
-                    p => p.Key,
-                    p => (object)new
-                    {
-                        type = p.Value.Type,
-                        description = p.Value.Description,
-                        @enum = p.Value.Enum
-                    }),
-                required = tool.Parameters.Required
-            }
+            Parameters = ToolSchemaWriter.Write(tool.Parameters)
         }
     };
 }

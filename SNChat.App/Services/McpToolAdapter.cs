@@ -69,6 +69,10 @@ public class McpToolAdapter : ITool
     /// <summary>
     /// Converts MCP's ToolInputSchema to SNChat's ToolParameterSchema.
     /// The formats are very similar, both based on JSON Schema.
+    ///
+    /// Nested structure is copied rather than flattened: an array that loses its
+    /// "items", or an object that loses its fields, produces a schema that some
+    /// providers reject and that leaves the model guessing at argument shapes.
     /// </summary>
     private static ToolParameterSchema ConvertSchema(ToolInputSchema mcpSchema)
     {
@@ -81,16 +85,19 @@ public class McpToolAdapter : ITool
         if (mcpSchema.Properties != null)
         {
             foreach (var (name, prop) in mcpSchema.Properties)
-            {
-                schema.Properties[name] = new ToolParameterProperty
-                {
-                    Type = prop.Type ?? "string",
-                    Description = prop.Description ?? "",
-                    Enum = prop.Enum
-                };
-            }
+                schema.Properties[name] = ConvertProperty(prop);
         }
 
         return schema;
     }
+
+    private static ToolParameterProperty ConvertProperty(PropertySchema prop) => new()
+    {
+        Type = prop.Type ?? "string",
+        Description = prop.Description ?? "",
+        Enum = prop.Enum,
+        Items = prop.Items == null ? null : ConvertProperty(prop.Items),
+        Properties = prop.Properties?.ToDictionary(p => p.Key, p => ConvertProperty(p.Value)),
+        Required = prop.Required
+    };
 }

@@ -140,6 +140,21 @@ public class PropertySchema
 
     [JsonPropertyName("enum")]
     public List<string>? Enum { get; set; }
+
+    /// <summary>
+    /// Element schema for an array property. Servers routinely declare array
+    /// arguments, and dropping this on the way in leaves a schema that stricter
+    /// providers reject outright.
+    /// </summary>
+    [JsonPropertyName("items")]
+    public PropertySchema? Items { get; set; }
+
+    /// <summary>Field schemas for an object property.</summary>
+    [JsonPropertyName("properties")]
+    public Dictionary<string, PropertySchema>? Properties { get; set; }
+
+    [JsonPropertyName("required")]
+    public List<string>? Required { get; set; }
 }
 
 public class CallToolParams
