@@ -41,10 +41,24 @@
         <Border Grid.Row="0" Background="#F8F8F8" BorderBrush="#E0E0E0" BorderThickness="0,0,0,1" Padding="12">
             <StackPanel>
                 <TextBlock Text="Conversations" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                <Button Content="↻ Refresh"
-                        Command="{Binding LoadConversationsCommand}"
-                        Padding="8,4"
-                        HorizontalAlignment="Stretch"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="10"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Button Grid.Column="0"
+                            Content="New Conversation"
+                            x:Name="NewConversationButton"
+                            Padding="8,4"
+                            HorizontalAlignment="Stretch"
+                            ToolTip="Start a new conversation (Ctrl+N)"/>
+                    <Button Grid.Column="2"
+                            Content="↻ Refresh"
+                            Command="{Binding LoadConversationsCommand}"
+                            Padding="8,4"
+                            HorizontalAlignment="Stretch"/>
+                </Grid>
             </StackPanel>
         </Border>
 

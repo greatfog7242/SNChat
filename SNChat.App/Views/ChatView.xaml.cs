@@ -146,10 +146,8 @@ public partial class ChatView : UserControl
         MessageInput.Focus();
     }
 
-    private void TemplatesButton_Click(object sender, RoutedEventArgs e) => ShowTemplatePicker();
-
     /// <summary>Opens the picker and drops the filled-in prompt into the input box.</summary>
-    public void ShowTemplatePicker()
+    public void ShowTemplatePicker(Window? owner = null)
     {
         if (_serviceProvider == null || DataContext is not ChatViewModel chat)
             return;
@@ -157,7 +155,7 @@ public partial class ChatView : UserControl
         var pickerViewModel = _serviceProvider.GetRequiredService<TemplatePickerViewModel>();
         var window = new TemplatePickerWindow(pickerViewModel)
         {
-            Owner = Window.GetWindow(this)
+            Owner = owner ?? Window.GetWindow(this)
         };
 
         if (window.ShowDialog() == true && window.Result != null)
@@ -182,6 +180,10 @@ public partial class ChatView : UserControl
         {
             Owner = Window.GetWindow(this)
         };
+
+        // The picker is owned by the settings window because that window is
+        // modal; a picker owned by the main window would be blocked by it.
+        settingsWindow.OpenTemplatesRequested += (s, args) => ShowTemplatePicker(settingsWindow);
 
         settingsWindow.ShowDialog();
     }

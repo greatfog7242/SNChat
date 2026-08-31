@@ -211,20 +211,11 @@
         <Border Grid.Row="0" Background="#F0F0F0" BorderBrush="#CCCCCC" BorderThickness="0,0,0,1" Padding="10">
             <Grid>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
-                    <Button Content="New Conversation"
-                            Command="{Binding NewConversationCommand}"
-                            Padding="10,5"
-                            Margin="0,0,10,0"
-                            ToolTip="Start a new conversation (Ctrl+N)"/>
-                    <Button Content="📋 Templates"
-                            Click="TemplatesButton_Click"
-                            Padding="10,5"
-                            Margin="0,0,10,0"
-                            ToolTip="Insert a saved prompt template (Ctrl+T)"/>
                     <Button Content="⚙ Settings"
                             Click="SettingsButton_Click"
                             Padding="10,5"
-                            Margin="0,0,10,0"/>
+                            Margin="0,0,10,0"
+                            ToolTip="Open settings and templates (Ctrl+T for templates)"/>
 
                     <!-- Shown only while a template's system prompt is active -->
                     <Border Background="#E8F5E9"
@@ -252,12 +243,6 @@
                                     ToolTip="Clear this template's system prompt"/>
                         </StackPanel>
                     </Border>
-                    <CheckBox Content="🔎 Web search"
-                              IsChecked="{Binding WebSearchEnabled}"
-                              VerticalAlignment="Center"
-                              Margin="0,0,10,0"
-                              ToolTip="Let the model search the web when it needs current information. Adds tool definitions to each request."
-                              IsEnabled="{Binding IsStreaming, Converter={StaticResource InverseBooleanConverter}}"/>
                 </StackPanel>
 
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
@@ -397,6 +382,15 @@
                                        MaxWidth="200"
                                        TextTrimming="CharacterEllipsis"/>
                         </StackPanel>
+
+                        <!-- Disabled, not hidden, while streaming: the setting
+                             stays visible so its state is readable mid-response. -->
+                        <CheckBox Content="Tools"
+                                  IsChecked="{Binding WebSearchEnabled}"
+                                  VerticalAlignment="Center"
+                                  Margin="10,0,0,0"
+                                  ToolTip="Enable tools like web search for the model"
+                                  IsEnabled="{Binding IsStreaming, Converter={StaticResource InverseBooleanConverter}}"/>
                     </StackPanel>
 
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">

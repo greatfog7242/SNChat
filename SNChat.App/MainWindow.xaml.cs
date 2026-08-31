@@ -32,9 +32,16 @@ public partial class MainWindow : Window
         // Set DataContext for conversation list
         ConversationListControl.DataContext = _conversationListViewModel;
 
-        // Wire up conversation selection
+        // Wire up conversation selection and new conversation request
         _conversationListViewModel.ConversationSelected += OnConversationSelected;
+        _conversationListViewModel.ConversationDeleted += OnConversationDeleted;
         _chatViewModel.ConversationSaved += OnConversationSaved;
+
+        // Wire up the new conversation button in the sidebar
+        if (ConversationListControl is ConversationListView listView)
+        {
+            listView.NewConversationRequested += (s, e) => _chatViewModel.NewConversationCommand.Execute(null);
+        }
 
         RegisterShortcuts();
     }
@@ -75,5 +82,11 @@ public partial class MainWindow : Window
     {
         // Refresh conversation list when a conversation is saved
         _conversationListViewModel.LoadConversationsCommand.Execute(null);
+    }
+
+    private void OnConversationDeleted(object? sender, EventArgs e)
+    {
+        // Start a new empty conversation when a conversation is deleted
+        _chatViewModel.NewConversationCommand.Execute(null);
     }
 }

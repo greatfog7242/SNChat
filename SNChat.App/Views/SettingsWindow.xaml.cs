@@ -7,6 +7,8 @@ public partial class SettingsWindow : Window
 {
     private readonly SettingsViewModel _viewModel;
 
+    public event EventHandler? OpenTemplatesRequested;
+
     public SettingsWindow(SettingsViewModel viewModel)
     {
         InitializeComponent();
@@ -14,6 +16,7 @@ public partial class SettingsWindow : Window
         DataContext = _viewModel;
 
         Loaded += SettingsWindow_Loaded;
+        OpenTemplatesButton.Click += (s, e) => OpenTemplatesRequested?.Invoke(this, EventArgs.Empty);
     }
 
     private void SettingsWindow_Loaded(object sender, RoutedEventArgs e)

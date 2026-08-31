@@ -30,6 +30,7 @@ public partial class ConversationListViewModel : ObservableObject
     private bool _isLoading;
 
     public event EventHandler<Conversation>? ConversationSelected;
+    public event EventHandler? ConversationDeleted;
 
     public ConversationListViewModel(
         IStorageService storageService,
@@ -146,6 +147,9 @@ public partial class ConversationListViewModel : ObservableObject
                 Conversations.Remove(info);
                 GroupConversations();
                 _logger.LogInformation("Deleted conversation: {Title}", info.Title);
+
+                // Notify that a conversation was deleted so the main window can create a new empty one
+                ConversationDeleted?.Invoke(this, EventArgs.Empty);
             }
             catch (Exception ex)
             {
