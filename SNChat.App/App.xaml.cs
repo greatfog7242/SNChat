@@ -165,13 +165,27 @@ public partial class App : Application
         {
             var httpClient = sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(OpenRouterProvider));
             var logger = sp.GetRequiredService<ILogger<OpenRouterProvider>>();
-            var settings = sp.GetRequiredService<SettingsService>().GetCachedSettings();
+            var settingsService = sp.GetRequiredService<SettingsService>();
+
+            // Read on each request rather than captured here: this provider is a
+            // singleton created at startup, so a key or model selection saved in
+            // Settings would otherwise not apply until the app was relaunched.
+            // The base URL is the exception - it fixes the HttpClient's address.
             return new OpenRouterProvider(httpClient, logger,
                 sp.GetRequiredService<IToolRegistry>(),
-                apiKey: settings.Providers.OpenRouterApiKey,
-                baseUrl: string.IsNullOrEmpty(settings.Providers.OpenRouterBaseUrl)
+                () =>
+                {
+                    var providers = settingsService.GetCachedSettings().Providers;
+                    return new OpenRouterRuntimeOptions
+                    {
+                        ApiKey = providers.OpenRouterApiKey,
+                        ByokProviders = providers.OpenRouterByokProviders,
+                        SelectedModels = providers.OpenRouterSelectedModels
+                    };
+                },
+                baseUrl: string.IsNullOrEmpty(settingsService.GetCachedSettings().Providers.OpenRouterBaseUrl)
                     ? null
-                    : settings.Providers.OpenRouterBaseUrl);
+                    : settingsService.GetCachedSettings().Providers.OpenRouterBaseUrl);
         });
 
         // Register provider factory

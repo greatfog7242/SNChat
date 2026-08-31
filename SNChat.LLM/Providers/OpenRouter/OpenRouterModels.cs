@@ -33,6 +33,23 @@ public class OpenRouterChatRequest
     [JsonPropertyName("tools")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<OpenRouterTool>? Tools { get; set; }
+
+    [JsonPropertyName("provider")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public OpenRouterProviderRouting? Provider { get; set; }
+}
+
+/// <summary>
+/// Restricts which upstream provider may serve a request. Used to keep
+/// bring-your-own-key traffic on the provider the key belongs to.
+/// </summary>
+public class OpenRouterProviderRouting
+{
+    [JsonPropertyName("only")]
+    public List<string> Only { get; set; } = new();
+
+    [JsonPropertyName("allow_fallbacks")]
+    public bool AllowFallbacks { get; set; }
 }
 
 public class OpenRouterMessage

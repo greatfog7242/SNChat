@@ -37,7 +37,70 @@
                         <TextBlock Text="API Key:" Margin="0,5,0,2"/>
                         <PasswordBox x:Name="OpenRouterApiKeyBox" Margin="0,0,0,10"/>
                         <TextBlock Text="Base URL:" Margin="0,0,0,2"/>
-                        <TextBox Text="{Binding OpenRouterBaseUrl, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,20"/>
+                        <TextBox Text="{Binding OpenRouterBaseUrl, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,10"/>
+
+                        <!-- Model picker: OpenRouter carries several hundred
+                             tool-capable models, too many for a flat dropdown. -->
+                        <Border BorderBrush="#DDDDDD" BorderThickness="1" CornerRadius="4"
+                                Padding="10" Margin="0,0,0,20">
+                            <StackPanel>
+                                <TextBlock Text="Models shown in the main window"
+                                           FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666"
+                                           Margin="0,0,0,8"
+                                           Text="Tick the models you actually use. With none ticked, every tool-capable model is offered, which is a very long list."/>
+
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                    <Button Content="Load models"
+                                            Command="{Binding LoadOpenRouterModelsCommand}"
+                                            Padding="10,4" Margin="0,0,8,0"
+                                            IsEnabled="{Binding IsLoadingOpenRouterModels,
+                                                        Converter={StaticResource InverseBooleanConverter}}"/>
+                                    <Button Content="Clear selection"
+                                            Command="{Binding ClearOpenRouterModelSelectionCommand}"
+                                            Padding="10,4" Margin="0,0,8,0"/>
+                                    <TextBox Text="{Binding OpenRouterModelFilter, UpdateSourceTrigger=PropertyChanged}"
+                                             Width="180" Padding="6,3" VerticalContentAlignment="Center"
+                                             ToolTip="Filter by model id"/>
+                                </StackPanel>
+
+                                <TextBlock Text="{Binding OpenRouterModelStatus}"
+                                           FontSize="11" Foreground="#666666" TextWrapping="Wrap"
+                                           Margin="0,0,0,6"/>
+
+                                <ProgressBar IsIndeterminate="True" Height="3" Margin="0,0,0,6"
+                                             Visibility="{Binding IsLoadingOpenRouterModels,
+                                                          Converter={StaticResource BooleanToVisibilityConverter}}"/>
+
+                                <!-- Fixed height with its own scrollbar: the list
+                                     is long and would otherwise push the API key
+                                     fields off the top of the tab. -->
+                                <ScrollViewer Height="220" VerticalScrollBarVisibility="Auto"
+                                              BorderBrush="#EEEEEE" BorderThickness="1">
+                                    <ItemsControl ItemsSource="{Binding OpenRouterModels}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid Margin="4,2">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <CheckBox Grid.Column="0"
+                                                              Content="{Binding Id}"
+                                                              IsChecked="{Binding IsSelected}"
+                                                              VerticalAlignment="Center"/>
+                                                    <TextBlock Grid.Column="1"
+                                                               Text="{Binding Detail}"
+                                                               FontSize="10" Foreground="#999999"
+                                                               VerticalAlignment="Center"
+                                                               Margin="8,0,4,0"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
+                            </StackPanel>
+                        </Border>
 
                         <!-- Anthropic -->
                         <TextBlock Text="Anthropic (Claude)" FontWeight="SemiBold" Margin="0,0,0,5"/>

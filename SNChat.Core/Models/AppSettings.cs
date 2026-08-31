@@ -15,6 +15,31 @@ public class ProviderSettings
     public string FreeTokenBaseUrl { get; set; } = "https://api.freetoken.ai/v1";
     public string OpenRouterApiKey { get; set; } = string.Empty;
     public string OpenRouterBaseUrl { get; set; } = "https://openrouter.ai/api/v1";
+
+    /// <summary>
+    /// Model-id prefixes whose traffic should be pinned to one upstream
+    /// provider, for providers you have given OpenRouter your own key for
+    /// (Settings -> Integrations on openrouter.ai).
+    ///
+    /// Without pinning, a request that your own key cannot serve is quietly
+    /// retried against a different provider and billed to OpenRouter credits
+    /// instead of your quota. Pinning turns that into a visible error.
+    ///
+    /// Never applied to ":free" models: those are the shared-pool variants that
+    /// your own key has nothing to do with. Add entries by hand as you add keys.
+    /// </summary>
+    public Dictionary<string, string> OpenRouterByokProviders { get; set; } = new()
+    {
+        ["google/"] = "google-ai-studio"
+    };
+
+    /// <summary>
+    /// Model ids to offer in the main window's dropdown. OpenRouter carries
+    /// several hundred tool-capable models, which is unusable as a flat list,
+    /// so the picker in Settings narrows it to the handful actually used.
+    /// Empty means offer all of them.
+    /// </summary>
+    public List<string> OpenRouterSelectedModels { get; set; } = new();
     public string AnthropicApiKey { get; set; } = string.Empty;
     public string OpenAIApiKey { get; set; } = string.Empty;
 

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using SNChat.Core.Models;
 using SNChat.Core.Tools;
@@ -13,10 +14,16 @@ public class OpenRouterProviderTests
     private static OpenRouterProvider Provider(IToolRegistry? registry, params string[] responses) =>
         new(new HttpClient(new StubHandler(responses)),
             NullLogger<OpenRouterProvider>.Instance,
-            registry,
-            apiKey: "test-key");
+            apiKey: "test-key",
+            toolRegistry: registry);
 
     private static OpenRouterProvider Provider(string response) => Provider(null, response);
+
+    private static OpenRouterProvider ProviderWithSelection(string response, params string[] selected) =>
+        new(new HttpClient(new StubHandler(response)),
+            NullLogger<OpenRouterProvider>.Instance,
+            apiKey: "test-key",
+            selectedModels: selected);
 
     /// <summary>
     /// Field names copied from a live GET /api/v1/models response. A rename on
@@ -40,14 +47,66 @@ public class OpenRouterProviderTests
     ]}
     """;
 
+    /// <summary>
+    /// Paid models belong in the list: with a provider key registered on
+    /// OpenRouter, the paid id is the one that bills to your own quota.
+    /// </summary>
     [Fact]
-    public async Task GetAvailableModels_keeps_only_free_tool_capable_models()
+    public async Task GetAvailableModels_keeps_every_tool_capable_model()
     {
         var models = await Provider(ModelsJson).GetAvailableModelsAsync();
 
         Assert.Equal(
-            new[] { "minimax/minimax-m3:free", "z-ai/glm-5.2:free" },
+            new[] { "minimax/minimax-m3:free", "some/paid-model", "z-ai/glm-5.2:free" },
             models.Select(m => m.Id).ToArray());
+    }
+
+    [Fact]
+    public async Task GetAvailableModels_drops_models_that_cannot_call_tools()
+    {
+        var models = await Provider(ModelsJson).GetAvailableModelsAsync();
+
+        Assert.DoesNotContain(models, m => m.Id == "some/free-no-tools:free");
+    }
+
+    /// <summary>
+    /// The point of the picker: the main dropdown shows only what was ticked,
+    /// not the several hundred models OpenRouter carries.
+    /// </summary>
+    [Fact]
+    public async Task GetAvailableModels_narrows_to_the_user_selection()
+    {
+        var provider = ProviderWithSelection(ModelsJson, "z-ai/glm-5.2:free");
+
+        var models = await provider.GetAvailableModelsAsync();
+
+        Assert.Equal(new[] { "z-ai/glm-5.2:free" }, models.Select(m => m.Id).ToArray());
+    }
+
+    /// <summary>The picker itself must still see everything, or nothing could be added back.</summary>
+    [Fact]
+    public async Task GetAllToolCapableModels_ignores_the_selection()
+    {
+        var provider = ProviderWithSelection(ModelsJson, "z-ai/glm-5.2:free");
+
+        var models = await provider.GetAllToolCapableModelsAsync();
+
+        Assert.Equal(3, models.Count);
+    }
+
+    /// <summary>
+    /// A saved selection can go stale when models are renamed or withdrawn.
+    /// Falling back to the full list keeps the dropdown usable; showing nothing
+    /// would strand the user with no way to fix it from the main window.
+    /// </summary>
+    [Fact]
+    public async Task Selection_that_matches_nothing_falls_back_to_all_models()
+    {
+        var provider = ProviderWithSelection(ModelsJson, "withdrawn/model-that-no-longer-exists");
+
+        var models = await provider.GetAvailableModelsAsync();
+
+        Assert.Equal(3, models.Count);
     }
 
     [Fact]
@@ -59,17 +118,17 @@ public class OpenRouterProviderTests
     }
 
     /// <summary>
-    /// A paid model priced below 1.0 must not be read as free. Guards the
-    /// invariant-culture parse: under a comma-decimal locale "0.000003" parses
-    /// as 3 rather than 0.000003, which is still non-zero, but "0.0" style
-    /// values and any future formatting change make this worth pinning.
+    /// A paid model priced below 1.0 must not be flagged free. Guards the
+    /// invariant-culture parse: under a comma-decimal locale "0.000003" would
+    /// otherwise be read as the number 3.
     /// </summary>
     [Fact]
-    public async Task GetAvailableModels_excludes_cheap_but_paid_models()
+    public async Task GetAvailableModels_flags_free_and_paid_apart()
     {
         var models = await Provider(ModelsJson).GetAvailableModelsAsync();
 
-        Assert.DoesNotContain(models, m => m.Id == "some/paid-model");
+        Assert.Equal(false, models.Single(m => m.Id == "some/paid-model").Capabilities["free"]);
+        Assert.Equal(true, models.Single(m => m.Id == "z-ai/glm-5.2:free").Capabilities["free"]);
     }
 
     /// <summary>
@@ -208,6 +267,67 @@ public class OpenRouterProviderTests
         Assert.Contains("retry shortly", text.ToString());
     }
 
+    // --- Bring-your-own-key provider routing ---
+
+    private static readonly Dictionary<string, string> Byok =
+        new() { ["google/"] = "google-ai-studio" };
+
+    private const string PlainAnswer = """
+        data: {"choices":[{"delta":{"content":"ok"}}]}
+
+        data: [DONE]
+
+        """;
+
+    private static async Task<JsonElement> SendAndCaptureBody(string model)
+    {
+        var handler = new StubHandler(PlainAnswer);
+        var provider = new OpenRouterProvider(
+            new HttpClient(handler), NullLogger<OpenRouterProvider>.Instance,
+            apiKey: "test-key", byokProviders: Byok);
+
+        var request = NewRequest();
+        request.Model = model;
+
+        await foreach (var _ in provider.GenerateStreamAsync(request)) { }
+
+        return JsonDocument.Parse(handler.SentBodies.Single()).RootElement.Clone();
+    }
+
+    /// <summary>
+    /// Without pinning, a request your own key cannot serve is retried against
+    /// another provider and billed to OpenRouter credits instead of your quota.
+    /// </summary>
+    [Fact]
+    public async Task Byok_model_is_pinned_to_its_provider_with_fallbacks_off()
+    {
+        var body = await SendAndCaptureBody("google/gemma-4-31b-it");
+
+        var routing = body.GetProperty("provider");
+        Assert.Equal("google-ai-studio", routing.GetProperty("only")[0].GetString());
+        Assert.False(routing.GetProperty("allow_fallbacks").GetBoolean());
+    }
+
+    /// <summary>
+    /// ":free" ids are the shared-pool variants, which a personal key has no
+    /// bearing on. Pinning them would strip the fallbacks they rely on.
+    /// </summary>
+    [Fact]
+    public async Task Free_variant_of_a_byok_model_is_left_unpinned()
+    {
+        var body = await SendAndCaptureBody("google/gemma-4-31b-it:free");
+
+        Assert.False(body.TryGetProperty("provider", out _));
+    }
+
+    [Fact]
+    public async Task Model_outside_the_byok_map_is_left_unpinned()
+    {
+        var body = await SendAndCaptureBody("anthropic/claude-sonnet-4.5");
+
+        Assert.False(body.TryGetProperty("provider", out _));
+    }
+
     [Fact]
     public async Task Missing_api_key_is_reported_rather_than_sent()
     {
@@ -240,16 +360,22 @@ public class OpenRouterProviderTests
         private readonly Queue<string> _bodies;
         public StubHandler(params string[] bodies) => _bodies = new Queue<string>(bodies);
 
-        protected override Task<HttpResponseMessage> SendAsync(
+        /// <summary>Request bodies seen, so tests can assert on what was sent.</summary>
+        public List<string> SentBodies { get; } = new();
+
+        protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            if (request.Content != null)
+                SentBodies.Add(await request.Content.ReadAsStringAsync(cancellationToken));
+
             // The last body repeats, so single-response tests need no changes.
             var body = _bodies.Count > 1 ? _bodies.Dequeue() : _bodies.Peek();
 
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(body, Encoding.UTF8, "application/json")
-            });
+            };
         }
     }
 

@@ -20,7 +20,7 @@ namespace SNChat.LLM.Providers.OpenRouter;
 public class OpenRouterProvider : BaseLLMProvider
 {
     private readonly IToolRegistry? _toolRegistry;
-    private readonly string _apiKey;
+    private readonly Func<OpenRouterRuntimeOptions> _options;
 
     protected override string BaseUrl { get; }
     public override string Name => "OpenRouter";
@@ -29,17 +29,14 @@ public class OpenRouterProvider : BaseLLMProvider
         HttpClient httpClient,
         ILogger<OpenRouterProvider> logger,
         IToolRegistry? toolRegistry = null,
-        string apiKey = "",
+        Func<OpenRouterRuntimeOptions>? options = null,
         string? baseUrl = null)
         : base(httpClient, logger)
     {
         _toolRegistry = toolRegistry;
-        _apiKey = apiKey;
+        _options = options ?? (() => new OpenRouterRuntimeOptions());
         BaseUrl = baseUrl ?? "https://openrouter.ai/api/v1";
         httpClient.BaseAddress = new Uri(BaseUrl.TrimEnd('/') + "/");
-
-        if (!string.IsNullOrEmpty(_apiKey))
-            httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_apiKey}");
 
         // OpenRouter attributes traffic to an app by these headers. Optional,
         // but without them requests show up as anonymous in the dashboard.
@@ -47,14 +44,72 @@ public class OpenRouterProvider : BaseLLMProvider
         httpClient.DefaultRequestHeaders.Add("X-Title", "SNChat");
     }
 
+    /// <summary>Fixed configuration; convenient for tests and simple callers.</summary>
+    public OpenRouterProvider(
+        HttpClient httpClient,
+        ILogger<OpenRouterProvider> logger,
+        string apiKey,
+        IToolRegistry? toolRegistry = null,
+        string? baseUrl = null,
+        IReadOnlyDictionary<string, string>? byokProviders = null,
+        IReadOnlyList<string>? selectedModels = null)
+        : this(httpClient, logger, toolRegistry,
+            () => new OpenRouterRuntimeOptions
+            {
+                ApiKey = apiKey,
+                ByokProviders = byokProviders ?? new Dictionary<string, string>(),
+                SelectedModels = selectedModels ?? Array.Empty<string>()
+            },
+            baseUrl)
+    {
+    }
+
     /// <summary>
-    /// Lists the free, tool-capable models. OpenRouter offers ~400 models, most
-    /// of them paid, which is far too many to pick from in a dropdown. Models
-    /// that cannot call tools are excluded because enabling Tools with one
-    /// selected fails at request time with a provider error rather than
-    /// degrading gracefully.
+    /// Set per request rather than as a default header, since the key can change
+    /// in Settings after this provider was built.
+    /// </summary>
+    private static void Authorize(HttpRequestMessage request, string apiKey) =>
+        request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {apiKey}");
+
+    /// <summary>
+    /// Lists the tool-capable models. Models that cannot call tools are
+    /// excluded because enabling Tools with one selected fails at request time
+    /// with a provider error rather than degrading gracefully.
+    ///
+    /// Paid models are included: with a provider key registered on OpenRouter,
+    /// the paid id is the one that bills to your own quota, while the ":free"
+    /// variant of the same model is the rate-limited shared pool.
     /// </summary>
     public override async Task<List<Model>> GetAvailableModelsAsync()
+    {
+        var all = await GetAllToolCapableModelsAsync();
+        var selected = _options().SelectedModels;
+
+        // No selection yet means the user has not been to the picker, so
+        // everything is offered rather than nothing.
+        if (selected.Count == 0)
+            return all;
+
+        var wanted = new HashSet<string>(selected, StringComparer.OrdinalIgnoreCase);
+        var chosen = all.Where(m => wanted.Contains(m.Id)).ToList();
+
+        Logger.LogInformation("OpenRouter: offering {Count} of {Total} models (user selection)",
+            chosen.Count, all.Count);
+
+        // A selection that matches nothing - models renamed or withdrawn - would
+        // otherwise empty the dropdown with no way to recover from the main window.
+        return chosen.Count > 0 ? chosen : all;
+    }
+
+    /// <summary>
+    /// Every tool-capable model OpenRouter offers, ignoring the user's
+    /// selection. This is what the Settings picker lists; the main dropdown
+    /// uses <see cref="GetAvailableModelsAsync"/>, which narrows it.
+    ///
+    /// Models that cannot call tools are excluded throughout, because enabling
+    /// Tools with one selected fails at request time rather than degrading.
+    /// </summary>
+    public async Task<List<Model>> GetAllToolCapableModelsAsync()
     {
         try
         {
@@ -63,7 +118,6 @@ public class OpenRouterProvider : BaseLLMProvider
                 return new List<Model>();
 
             var models = response.Data
-                .Where(IsFree)
                 .Where(m => m.SupportedParameters?.Contains("tools") == true)
                 .OrderBy(m => m.Id, StringComparer.OrdinalIgnoreCase)
                 .Select(m => new Model
@@ -75,13 +129,13 @@ public class OpenRouterProvider : BaseLLMProvider
                     Capabilities = new Dictionary<string, object>
                     {
                         ["tools"] = true,
-                        ["free"] = true
+                        ["free"] = IsFree(m)
                     }
                 })
                 .ToList();
 
             Logger.LogInformation(
-                "OpenRouter: {Shown} free tool-capable models of {Total} offered",
+                "OpenRouter: {Shown} tool-capable models of {Total} offered",
                 models.Count, response.Data.Count);
 
             return models;
@@ -91,6 +145,28 @@ public class OpenRouterProvider : BaseLLMProvider
             Logger.LogError(ex, "Failed to get available models from OpenRouter");
             return new List<Model>();
         }
+    }
+
+    /// <summary>
+    /// Picks the upstream provider a model must be pinned to, or null to let
+    /// OpenRouter route freely.
+    ///
+    /// ":free" ids are left unpinned on purpose: they are the shared-pool
+    /// variants, which your own key has no bearing on, and restricting them
+    /// would only remove the fallbacks that make them work at all.
+    /// </summary>
+    private string? ResolveByokProvider(string modelId)
+    {
+        if (modelId.EndsWith(":free", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        foreach (var (prefix, provider) in _options().ByokProviders)
+        {
+            if (modelId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return provider;
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -122,7 +198,9 @@ public class OpenRouterProvider : BaseLLMProvider
 
     public override async IAsyncEnumerable<StreamChunk> GenerateStreamAsync(GenerateRequest request)
     {
-        if (string.IsNullOrEmpty(_apiKey))
+        var apiKey = _options().ApiKey;
+
+        if (string.IsNullOrEmpty(apiKey))
         {
             yield return new StreamChunk
             {
@@ -142,7 +220,7 @@ public class OpenRouterProvider : BaseLLMProvider
             var pendingToolCalls = new List<OpenRouterToolCall>();
             var sawContent = false;
 
-            await foreach (var item in SendOnceAsync(chatRequest, request.CancellationToken))
+            await foreach (var item in SendOnceAsync(chatRequest, apiKey, request.CancellationToken))
             {
                 if (item.ToolCalls != null)
                 {
@@ -234,12 +312,15 @@ public class OpenRouterProvider : BaseLLMProvider
     /// </summary>
     private async IAsyncEnumerable<StreamItem> SendOnceAsync(
         OpenRouterChatRequest chatRequest,
+        string apiKey,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "chat/completions")
         {
             Content = JsonContent.Create(chatRequest)
         };
+
+        Authorize(httpRequest, apiKey);
 
         HttpResponseMessage? response = null;
         string? errorMessage = null;
@@ -541,6 +622,13 @@ public class OpenRouterProvider : BaseLLMProvider
             Content = m.Content
         }));
 
+        var byokProvider = ResolveByokProvider(request.Model);
+        if (byokProvider != null)
+        {
+            Logger.LogDebug("Pinning {Model} to {Provider} with fallbacks off",
+                request.Model, byokProvider);
+        }
+
         return new OpenRouterChatRequest
         {
             Model = request.Model,
@@ -551,6 +639,13 @@ public class OpenRouterProvider : BaseLLMProvider
             Tools = request.Tools.Count > 0
                 ? request.Tools.Select(ToOpenRouterTool).ToList()
                 : null,
+            Provider = byokProvider == null
+                ? null
+                : new OpenRouterProviderRouting
+                {
+                    Only = new List<string> { byokProvider },
+                    AllowFallbacks = false
+                },
             Temperature = request.Parameters.Temperature,
             MaxTokens = request.Parameters.MaxTokens,
             TopP = request.Parameters.TopP

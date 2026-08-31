@@ -1,16 +1,49 @@
+using System.Collections.ObjectModel;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using SNChat.Core.Models;
 using SNChat.Core.Services;
+using SNChat.LLM.Providers.OpenRouter;
 
 namespace SNChat.App.ViewModels;
+
+/// <summary>One row in the OpenRouter model picker.</summary>
+public partial class OpenRouterModelChoice : ObservableObject
+{
+    [ObservableProperty]
+    private bool _isSelected;
+
+    public string Id { get; init; } = string.Empty;
+    public bool IsFree { get; init; }
+    public long ContextWindow { get; init; }
+
+    /// <summary>e.g. "free · 262k context" - shown beside the id.</summary>
+    public string Detail =>
+        $"{(IsFree ? "free" : "paid")} · {ContextWindow / 1000}k context";
+}
 
 public partial class SettingsViewModel : ObservableObject
 {
     private readonly SettingsService _settingsService;
+    private readonly OpenRouterProvider _openRouter;
     private readonly ILogger<SettingsViewModel> _logger;
+
+    /// <summary>Every tool-capable model, kept so filtering does not refetch.</summary>
+    private List<OpenRouterModelChoice> _allOpenRouterModels = new();
+
+    [ObservableProperty]
+    private ObservableCollection<OpenRouterModelChoice> _openRouterModels = new();
+
+    [ObservableProperty]
+    private string _openRouterModelFilter = string.Empty;
+
+    [ObservableProperty]
+    private bool _isLoadingOpenRouterModels;
+
+    [ObservableProperty]
+    private string _openRouterModelStatus = "Load the list to choose which models appear in the main window.";
 
     // Provider Settings
     [ObservableProperty]
@@ -102,12 +135,98 @@ public partial class SettingsViewModel : ObservableObject
 
     public SettingsViewModel(
         SettingsService settingsService,
+        OpenRouterProvider openRouter,
         ILogger<SettingsViewModel> logger)
     {
         _settingsService = settingsService;
+        _openRouter = openRouter;
         _logger = logger;
 
         _ = LoadSettingsAsync();
+    }
+
+    /// <summary>
+    /// Fetches the full model list for the picker. On demand rather than when
+    /// the window opens, so opening Settings for an unrelated reason does not
+    /// make a network call.
+    /// </summary>
+    [RelayCommand]
+    private async Task LoadOpenRouterModelsAsync()
+    {
+        IsLoadingOpenRouterModels = true;
+        OpenRouterModelStatus = "Loading...";
+
+        try
+        {
+            var models = await _openRouter.GetAllToolCapableModelsAsync();
+
+            if (models.Count == 0)
+            {
+                OpenRouterModelStatus = "No models returned. Check the base URL and your connection.";
+                return;
+            }
+
+            var selected = new HashSet<string>(
+                _settingsService.GetCachedSettings().Providers.OpenRouterSelectedModels,
+                StringComparer.OrdinalIgnoreCase);
+
+            _allOpenRouterModels = models.Select(m => new OpenRouterModelChoice
+            {
+                Id = m.Id,
+                IsFree = m.Capabilities.TryGetValue("free", out var free) && free is true,
+                ContextWindow = m.ContextWindow,
+                IsSelected = selected.Contains(m.Id)
+            }).ToList();
+
+            // A change to any checkbox is a change to the settings.
+            foreach (var choice in _allOpenRouterModels)
+                choice.PropertyChanged += (_, _) => HasUnsavedChanges = true;
+
+            ApplyOpenRouterModelFilter();
+            _logger.LogInformation("Loaded {Count} OpenRouter models for selection", models.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load OpenRouter models");
+            OpenRouterModelStatus = $"Could not load models: {ex.Message}";
+        }
+        finally
+        {
+            IsLoadingOpenRouterModels = false;
+        }
+    }
+
+    partial void OnOpenRouterModelFilterChanged(string value) => ApplyOpenRouterModelFilter();
+
+    private void ApplyOpenRouterModelFilter()
+    {
+        if (_allOpenRouterModels.Count == 0)
+            return;
+
+        var term = OpenRouterModelFilter.Trim();
+
+        var matches = string.IsNullOrEmpty(term)
+            ? _allOpenRouterModels
+            : _allOpenRouterModels
+                .Where(m => m.Id.Contains(term, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+        OpenRouterModels = new ObservableCollection<OpenRouterModelChoice>(matches);
+
+        var chosen = _allOpenRouterModels.Count(m => m.IsSelected);
+        OpenRouterModelStatus = chosen == 0
+            ? $"Showing {matches.Count} of {_allOpenRouterModels.Count}. None selected, so all are offered."
+            : $"Showing {matches.Count} of {_allOpenRouterModels.Count}. {chosen} selected.";
+    }
+
+    /// <summary>Clears the selection, which puts every model back in the dropdown.</summary>
+    [RelayCommand]
+    private void ClearOpenRouterModelSelection()
+    {
+        foreach (var choice in _allOpenRouterModels)
+            choice.IsSelected = false;
+
+        ApplyOpenRouterModelFilter();
     }
 
     private async Task LoadSettingsAsync()
@@ -180,6 +299,17 @@ public partial class SettingsViewModel : ObservableObject
             settings.Providers.OpenAIApiKey = OpenAIApiKey;
             settings.Providers.GoogleApiKey = GoogleApiKey;
             settings.Providers.GoogleSearchEngineId = GoogleSearchEngineId;
+
+            // Only overwrite the selection when the picker was actually loaded.
+            // Saving an empty list from a window where the user never opened it
+            // would silently discard their choices.
+            if (_allOpenRouterModels.Count > 0)
+            {
+                settings.Providers.OpenRouterSelectedModels = _allOpenRouterModels
+                    .Where(m => m.IsSelected)
+                    .Select(m => m.Id)
+                    .ToList();
+            }
 
             settings.Tools.ImageSource = ImageSource;
             settings.Tools.FallbackToCommons = FallbackToCommons;
