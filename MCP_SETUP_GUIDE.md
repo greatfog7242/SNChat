@@ -454,6 +454,8 @@ and skipped — the others still load, and the app starts normally.
 
 ## Further Reading
 
+- `MCP_AND_SEARCH_RUNBOOK.md` — the running setup, its rough edges, and how to
+  diagnose a failure; start here when something that worked stops working
 - `SNChat.MCP/README.md` — library overview
 - `SNChat.MCP/PHASE2_TESTING.md` — deeper testing notes
 - [modelcontextprotocol.io](https://modelcontextprotocol.io) — protocol spec
