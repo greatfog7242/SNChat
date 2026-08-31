@@ -71,7 +71,7 @@ public class McpService : IDisposable
             config.Name, config.Command, config.Arguments);
 
         // Create and initialize client
-        var client = new McpClient(config.Command, config.Arguments);
+        var client = new McpClient(config.Command, config.Arguments, config.Env);
         client.ErrorReceived += (s, error) =>
         {
             _logger.LogWarning("MCP server {Name} error: {Error}", config.Name, error);

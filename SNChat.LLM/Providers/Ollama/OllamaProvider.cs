@@ -252,6 +252,11 @@ public class OllamaProvider : BaseLLMProvider
             await using var stream = await response!.Content.ReadAsStreamAsync(cancellationToken);
             using var reader = new StreamReader(stream);
 
+            // Thinking arrives a few characters at a time. Showing each fragment
+            // on its own would just flicker, so it accumulates here and the
+            // status line shows the tail of the reasoning so far.
+            var thinking = new StringBuilder();
+
             while (!reader.EndOfStream)
             {
                 if (cancellationToken.IsCancellationRequested)
@@ -279,6 +284,23 @@ public class OllamaProvider : BaseLLMProvider
                 {
                     foreach (var call in toolCalls)
                         yield return new StreamItem { ToolCall = call };
+                }
+
+                // Reasoning goes out as a status line rather than as content, so
+                // it shows the model is working without landing in the saved
+                // answer. Emitted separately because a chunk carrying thinking
+                // usually carries no content at all.
+                if (!string.IsNullOrEmpty(chunk.Message?.Thinking))
+                {
+                    thinking.Append(chunk.Message.Thinking);
+                    yield return new StreamItem
+                    {
+                        Chunk = new StreamChunk
+                        {
+                            Content = Summarize(thinking.ToString()),
+                            IsStatus = true
+                        }
+                    };
                 }
 
                 yield return new StreamItem
@@ -383,6 +405,25 @@ public class OllamaProvider : BaseLLMProvider
     /// Returns null when the message has none, so the field is omitted entirely
     /// rather than sent as an empty array.
     /// </summary>
+    /// <summary>
+    /// Renders the reasoning so far as one status line. Newlines are flattened
+    /// because the status area is a single line, and only the tail is kept: it
+    /// is the part still being written, so it keeps moving and shows the model
+    /// is making progress rather than freezing on the opening words.
+    /// </summary>
+    private static string Summarize(string thinking)
+    {
+        const int maxLength = 90;
+
+        var flattened = string.Join(' ', thinking.Split(
+            new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+
+        if (flattened.Length <= maxLength)
+            return $"Thinking: {flattened}";
+
+        return $"Thinking: ...{flattened[^maxLength..].TrimStart()}";
+    }
+
     private List<string>? EncodeImages(Message message)
     {
         if (message.Attachments.Count == 0)

@@ -20,9 +20,12 @@ public class McpClient : IDisposable
 
     public event EventHandler<string>? ErrorReceived;
 
-    public McpClient(string serverCommand, string serverArguments = "")
+    public McpClient(
+        string serverCommand,
+        string serverArguments = "",
+        IReadOnlyDictionary<string, string>? environment = null)
     {
-        _transport = new StdioTransport(serverCommand, serverArguments);
+        _transport = new StdioTransport(serverCommand, serverArguments, environment);
         _transport.ErrorReceived += (s, e) => ErrorReceived?.Invoke(this, e);
     }
 

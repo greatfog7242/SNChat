@@ -31,6 +31,18 @@ public class OllamaMessage
     [JsonPropertyName("content")]
     public string Content { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Reasoning emitted by thinking-capable models, which Ollama returns
+    /// separately from the answer. A model can spend a long stretch filling only
+    /// this field while content stays empty; without reading it there is nothing
+    /// to show for that time and a working model is indistinguishable from a
+    /// hung one. Never persisted into the conversation - it is progress, not
+    /// part of the reply.
+    /// </summary>
+    [JsonPropertyName("thinking")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Thinking { get; set; }
+
     [JsonPropertyName("tool_calls")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<OllamaToolCall>? ToolCalls { get; set; }

@@ -52,7 +52,10 @@ public class StdioTransport : IDisposable
     public event EventHandler<JsonRpcNotification>? NotificationReceived;
     public event EventHandler<string>? ErrorReceived;
 
-    public StdioTransport(string command, string arguments = "")
+    public StdioTransport(
+        string command,
+        string arguments = "",
+        IReadOnlyDictionary<string, string>? environment = null)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -66,6 +69,14 @@ public class StdioTransport : IDisposable
             StandardOutputEncoding = Utf8NoBom,
             StandardInputEncoding = Utf8NoBom
         };
+
+        // Added on top of the inherited environment rather than replacing it, so
+        // a server still finds PATH and the rest of what it needs to run.
+        if (environment != null)
+        {
+            foreach (var (key, value) in environment)
+                startInfo.Environment[key] = value;
+        }
 
         _process = new Process { StartInfo = startInfo };
 

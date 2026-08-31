@@ -86,6 +86,14 @@ public class McpServerConfig
     /// <summary>Arguments to pass to the command.</summary>
     public string Arguments { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Extra environment variables for the server process, added to the ones it
+    /// inherits. Many servers take their endpoint or credentials this way rather
+    /// than on the command line - mcp-searxng reads SEARXNG_URL, and API-backed
+    /// servers read their key - so without this they cannot be configured at all.
+    /// </summary>
+    public Dictionary<string, string> Env { get; set; } = new();
+
     /// <summary>Whether this server should be started automatically.</summary>
     public bool Enabled { get; set; } = true;
 }
