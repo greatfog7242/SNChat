@@ -6,6 +6,7 @@
     <ProjectReference Include="..\SNChat.FileTools\SNChat.FileTools.csproj" />
     <ProjectReference Include="..\SNChat.WebTools\SNChat.WebTools.csproj" />
     <ProjectReference Include="..\SNChat.RAG\SNChat.RAG.csproj" />
+    <ProjectReference Include="..\SNChat.MCP\SNChat.MCP.csproj" />
   </ItemGroup>
 
   <ItemGroup>

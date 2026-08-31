@@ -59,6 +59,10 @@ public partial class App : Application
             // Initialize data directories
             InitializeDirectories(appDataPath);
 
+            // Initialize MCP servers and register their tools
+            var mcpService = _host.Services.GetRequiredService<Services.McpService>();
+            await mcpService.InitializeAsync();
+
             // Show the main window
             var mainWindow = _host.Services.GetRequiredService<MainWindow>();
             mainWindow.Show();
@@ -120,6 +124,9 @@ public partial class App : Application
             registry.Register(sp.GetRequiredService<ImageSearchTool>());
             return registry;
         });
+
+        // MCP (Model Context Protocol) service for external tool servers
+        services.AddSingleton<Services.McpService>();
 
         // Register LLM providers
         services.AddSingleton<OllamaProvider>(sp => new OllamaProvider(

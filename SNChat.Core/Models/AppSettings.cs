@@ -66,6 +66,28 @@ public class ToolSettings
     /// Has no effect on the DuckDuckGo or Wikipedia lookups.
     /// </summary>
     public bool SafeSearch { get; set; } = true;
+
+    /// <summary>
+    /// MCP (Model Context Protocol) servers to connect to.
+    /// Each server provides tools that the LLM can use.
+    /// </summary>
+    public List<McpServerConfig> McpServers { get; set; } = new();
+}
+
+/// <summary>Configuration for an MCP server.</summary>
+public class McpServerConfig
+{
+    /// <summary>Friendly name for this server (for logging/UI).</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Command to execute (e.g., "npx", "python", "node").</summary>
+    public string Command { get; set; } = string.Empty;
+
+    /// <summary>Arguments to pass to the command.</summary>
+    public string Arguments { get; set; } = string.Empty;
+
+    /// <summary>Whether this server should be started automatically.</summary>
+    public bool Enabled { get; set; } = true;
 }
 
 public static class WebSourcePreference
