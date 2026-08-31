@@ -141,8 +141,31 @@
 
                     <!-- Footer: timestamp plus copy actions revealed on hover -->
                     <Grid Margin="0,4,0,0">
-                        <TextBlock Text="{Binding Timestamp, StringFormat='HH:mm:ss'}"
-                                   FontSize="10" Opacity="0.5" VerticalAlignment="Center"/>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding LocalTimestamp, StringFormat='HH:mm:ss'}"
+                                       FontSize="10" Opacity="0.5" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding TokenSummary}"
+                                       FontSize="10"
+                                       Opacity="0.5"
+                                       VerticalAlignment="Center"
+                                       Margin="8,0,0,0"
+                                       Visibility="{Binding HasTokenSummary,
+                                                    Converter={StaticResource BooleanToVisibilityConverter}}"
+                                       ToolTip="Input counts cover the whole prompt, including history and tool definitions. Output includes any reasoning the model did but did not show."/>
+
+                            <!-- What produced this reply. Absent on user
+                                 messages, which nothing produced. -->
+                            <TextBlock Text="{Binding ModelSummary}"
+                                       FontSize="10"
+                                       Opacity="0.5"
+                                       VerticalAlignment="Center"
+                                       Margin="8,0,0,0"
+                                       MaxWidth="260"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip="{Binding ModelSummary}"
+                                       Visibility="{Binding HasModelSummary,
+                                                    Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                        </StackPanel>
 
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                             <StackPanel.Style>
@@ -363,7 +386,15 @@
                 </TextBox>
 
                 <Grid Grid.Row="2" Margin="0,5,0,0">
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
+                    <!-- Two columns, not one shared cell. Both panels used to
+                         occupy the same cell and overlap, so as the status text
+                         grew it slid underneath the send controls and vanished. -->
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
                         <!-- Compact streaming indicator -->
                         <StackPanel Orientation="Horizontal"
                                     Visibility="{Binding IsStreaming, Converter={StaticResource BooleanToVisibilityConverter}}"
@@ -374,6 +405,16 @@
                                        FontWeight="SemiBold"
                                        Foreground="#2196F3"
                                        VerticalAlignment="Center"
+                                       Margin="0,0,6,0"/>
+                            <!-- Reserves room for four digits so the status text
+                                 beside it does not jump right each time the
+                                 count gains one. -->
+                            <TextBlock Text="{Binding ElapsedTime}"
+                                       FontSize="11"
+                                       FontWeight="SemiBold"
+                                       Foreground="#2196F3"
+                                       VerticalAlignment="Center"
+                                       MinWidth="42"
                                        Margin="0,0,8,0"/>
                             <TextBlock Text="{Binding StatusMessage}"
                                        FontSize="10"
@@ -383,6 +424,29 @@
                                        TextTrimming="CharacterEllipsis"/>
                         </StackPanel>
 
+                        <!-- How long the last reply took, kept after it ends.
+                             Hidden while generating, where the live counter
+                             above is showing the same thing. -->
+                        <TextBlock FontSize="10"
+                                   Foreground="#999999"
+                                   VerticalAlignment="Center"
+                                   Text="{Binding ElapsedTime, StringFormat='took {0}'}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <MultiDataTrigger>
+                                            <MultiDataTrigger.Conditions>
+                                                <Condition Binding="{Binding HasElapsedTime}" Value="True"/>
+                                                <Condition Binding="{Binding IsStreaming}" Value="False"/>
+                                            </MultiDataTrigger.Conditions>
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </MultiDataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+
                         <!-- Disabled, not hidden, while streaming: the setting
                              stays visible so its state is readable mid-response. -->
                         <CheckBox Content="Tools"
@@ -391,9 +455,20 @@
                                   Margin="10,0,0,0"
                                   ToolTip="Enable tools like web search for the model"
                                   IsEnabled="{Binding IsStreaming, Converter={StaticResource InverseBooleanConverter}}"/>
+
+                        <!-- Running cost of this conversation, across every
+                             session it has been open in. -->
+                        <TextBlock Text="{Binding ConversationTokenSummary}"
+                                   FontSize="10"
+                                   Foreground="#999999"
+                                   VerticalAlignment="Center"
+                                   Margin="12,0,0,0"
+                                   ToolTip="Total tokens this conversation has cost. Input counts include the whole prompt sent each turn, so they grow as the history does."
+                                   Visibility="{Binding HasConversationTokens,
+                                                Converter={StaticResource BooleanToVisibilityConverter}}"/>
                     </StackPanel>
 
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
                         <TextBlock Text="Enter to send · Shift+Enter for a new line"
                                    VerticalAlignment="Center"
                                    Margin="0,0,10,0"

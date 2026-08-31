@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using YamlDotNet.Serialization;
@@ -156,6 +157,8 @@ public class StorageService : IStorageService
             parent_branch = conversation.ParentBranchId,
             branch_point = conversation.BranchPoint,
             tags = conversation.Metadata.Tags,
+            total_prompt_tokens = conversation.Metadata.TotalPromptTokens,
+            total_completion_tokens = conversation.Metadata.TotalCompletionTokens,
             parameters = new
             {
                 temperature = conversation.Metadata.Parameters.Temperature,
@@ -176,7 +179,10 @@ public class StorageService : IStorageService
         for (int i = 0; i < conversation.Messages.Count; i++)
         {
             var message = conversation.Messages[i];
-            var timestamp = message.Timestamp.ToString("yyyy-MM-dd HH:mm:ss");
+            // Normalised to UTC on the way out, so the stored value cannot
+            // depend on the timezone of the machine that wrote it.
+            var timestamp = message.Timestamp.ToUniversalTime().ToString(
+                "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
 
             sb.AppendLine($"## Message {i + 1} ({message.Role}) - {timestamp}");
             sb.AppendLine(message.Content);
@@ -229,6 +235,14 @@ public class StorageService : IStorageService
         if (frontmatter.ContainsKey("tags") && frontmatter["tags"] is List<object> tags)
             conversation.Metadata.Tags = tags.Select(t => t.ToString()!).ToList();
 
+        // Absent from anything saved before token accounting existed, so both
+        // are read only if present and otherwise stay at zero.
+        if (frontmatter.ContainsKey("total_prompt_tokens"))
+            conversation.Metadata.TotalPromptTokens = Convert.ToInt32(frontmatter["total_prompt_tokens"]);
+
+        if (frontmatter.ContainsKey("total_completion_tokens"))
+            conversation.Metadata.TotalCompletionTokens = Convert.ToInt32(frontmatter["total_completion_tokens"]);
+
         // Parse parameters
         if (frontmatter.ContainsKey("parameters") && frontmatter["parameters"] is Dictionary<object, object> paramsDict)
         {
@@ -269,9 +283,16 @@ public class StorageService : IStorageService
                 continue;
 
             // Extract timestamp
+            // The stored form carries no timezone marker, so a plain Parse
+            // returns Unspecified - which ToLocalTime() treats as already local
+            // and leaves untouched, displaying UTC. Everything written here has
+            // always been UTC, so say so and convert to it.
             var timestampMatch = System.Text.RegularExpressions.Regex.Match(header, @"- (.+)$");
             var timestamp = timestampMatch.Success
-                ? DateTime.Parse(timestampMatch.Groups[1].Value)
+                ? DateTime.Parse(
+                    timestampMatch.Groups[1].Value,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal)
                 : DateTime.UtcNow;
 
             conversation.Messages.Add(new Message

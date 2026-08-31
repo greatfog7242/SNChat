@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
@@ -30,6 +31,14 @@ public partial class ChatViewModel : ObservableObject
     /// </summary>
     private bool _selectionRestored;
 
+    /// <summary>
+    /// Drives the elapsed-time readout. A DispatcherTimer rather than a task
+    /// loop because it ticks on the UI thread, so the bound property can be
+    /// updated straight from the handler.
+    /// </summary>
+    private readonly DispatcherTimer _elapsedTimer = new() { Interval = TimeSpan.FromSeconds(1) };
+    private DateTime _generationStartedAt;
+
     [ObservableProperty]
     private ObservableCollection<Message> _messages = new();
 
@@ -48,6 +57,42 @@ public partial class ChatViewModel : ObservableObject
     /// <summary>Transient progress text such as "Using web_search...".</summary>
     [ObservableProperty]
     private string _statusMessage = string.Empty;
+
+    /// <summary>
+    /// How long the current reply has been running, as "124s". A local model can
+    /// spend minutes on one turn, and without a moving number there is nothing
+    /// to tell a working model from a hung one. Holds the final duration once
+    /// the reply finishes, so the cost of the turn stays visible.
+    /// </summary>
+    [ObservableProperty]
+    private string _elapsedTime = string.Empty;
+
+    /// <summary>True once a reply has finished, to label the held duration.</summary>
+    [ObservableProperty]
+    private bool _hasElapsedTime;
+
+    /// <summary>
+    /// Running cost of the open conversation, as "24,180 in · 9,412 out".
+    /// Empty when nothing has been spent yet, so a fresh conversation does not
+    /// show a row of zeroes.
+    /// </summary>
+    [ObservableProperty]
+    private string _conversationTokenSummary = string.Empty;
+
+    public bool HasConversationTokens => !string.IsNullOrEmpty(ConversationTokenSummary);
+
+    private void UpdateConversationTokenSummary()
+    {
+        var metadata = CurrentConversation?.Metadata;
+        var input = metadata?.TotalPromptTokens ?? 0;
+        var output = metadata?.TotalCompletionTokens ?? 0;
+
+        ConversationTokenSummary = input == 0 && output == 0
+            ? string.Empty
+            : $"{input:N0} in · {output:N0} out";
+
+        OnPropertyChanged(nameof(HasConversationTokens));
+    }
 
     /// <summary>
     /// Sent ahead of the conversation on every request. Set when a template
@@ -84,6 +129,7 @@ public partial class ChatViewModel : ObservableObject
 
     /// <summary>
     /// When off, no tool definitions are sent, keeping ordinary chats fast.
+    /// Initialised from Tools.EnabledByDefault, which starts on.
     /// </summary>
     [ObservableProperty]
     private bool _webSearchEnabled;
@@ -112,6 +158,10 @@ public partial class ChatViewModel : ObservableObject
         }
 
         RestoreLastSelection();
+
+        WebSearchEnabled = _settingsService.GetCachedSettings().Tools.EnabledByDefault;
+
+        _elapsedTimer.Tick += (_, _) => ElapsedTime = FormatElapsed(DateTime.UtcNow - _generationStartedAt);
 
         _currentProvider = _providerFactory.GetProvider(CurrentProviderName);
 
@@ -195,6 +245,41 @@ public partial class ChatViewModel : ObservableObject
             }
         });
     }
+
+    /// <summary>
+    /// Runs the elapsed-time readout for exactly as long as a reply is being
+    /// produced. Driven off IsStreaming rather than started and stopped at the
+    /// call sites, so a reply that ends by cancellation or by error stops the
+    /// clock the same way a completed one does.
+    /// </summary>
+    partial void OnIsStreamingChanged(bool value)
+    {
+        if (value)
+        {
+            _generationStartedAt = DateTime.UtcNow;
+            ElapsedTime = FormatElapsed(TimeSpan.Zero);
+            HasElapsedTime = false;
+            _elapsedTimer.Start();
+        }
+        else
+        {
+            _elapsedTimer.Stop();
+
+            // Tick only fires on whole seconds, so a reply finishing between
+            // ticks would otherwise leave a stale number on screen.
+            ElapsedTime = FormatElapsed(DateTime.UtcNow - _generationStartedAt);
+            HasElapsedTime = true;
+        }
+    }
+
+    /// <summary>
+    /// A running total of seconds for the whole task, never rolling over into
+    /// minutes. Rolling over resets the visible number to 00 at the one minute
+    /// mark, which reads as the counter having stopped rather than passed a
+    /// minute - and these tasks routinely run for several.
+    /// </summary>
+    private static string FormatElapsed(TimeSpan elapsed) =>
+        $"{(int)elapsed.TotalSeconds}s";
 
     partial void OnCurrentModelChanged(string value) => PersistSelection();
 
@@ -429,6 +514,7 @@ public partial class ChatViewModel : ObservableObject
 
         Messages.Clear();
         StreamingContent = string.Empty;
+        UpdateConversationTokenSummary();
 
         _logger.LogInformation("Started new conversation: {ConversationId} with provider {Provider}",
             CurrentConversation.Id, CurrentProviderName);
@@ -444,21 +530,34 @@ public partial class ChatViewModel : ObservableObject
         {
             Role = MessageRole.Assistant,
             Content = string.Empty,
-            Timestamp = DateTime.UtcNow
+            Timestamp = DateTime.UtcNow,
+            // Captured now rather than read at render time, so a reply keeps
+            // showing what produced it after the selection is changed.
+            Provider = CurrentProviderName,
+            ModelName = CurrentModel
         };
 
         Messages.Add(assistantMessage);
 
+        // Reported by the provider when the stream ends; used to tell a model
+        // that ran out of budget from one that simply said nothing.
+        int? completionTokens = null;
+
         try
         {
+            var defaults = _settingsService.GetCachedSettings().Defaults;
+
             var request = new GenerateRequest
             {
                 Model = CurrentModel,
                 Messages = CurrentConversation!.Messages.ToList(),
+                // These were hardcoded, so the temperature, token limit and top-p
+                // in Settings were written but never sent.
                 Parameters = new ModelParameters
                 {
-                    Temperature = 0.7,
-                    MaxTokens = 2000
+                    Temperature = defaults.Temperature,
+                    MaxTokens = defaults.MaxTokens,
+                    TopP = defaults.TopP
                 },
                 SystemPrompt = string.IsNullOrWhiteSpace(SystemPrompt) ? null : SystemPrompt,
                 CancellationToken = _cancellationTokenSource.Token,
@@ -492,6 +591,23 @@ public partial class ChatViewModel : ObservableObject
 
                 if (chunk.IsFinal && chunk.Metadata != null)
                 {
+                    completionTokens = chunk.Metadata.EvalCount;
+
+                    assistantMessage.CompletionTokens = chunk.Metadata.EvalCount;
+
+                    // The prompt count arrives with the reply but describes the
+                    // input, so it belongs on the message that prompted it.
+                    var prompting = Messages.LastOrDefault(m => m.Role == MessageRole.User);
+                    if (prompting != null)
+                        prompting.PromptTokens = chunk.Metadata.PromptEvalCount;
+
+                    if (CurrentConversation != null)
+                    {
+                        CurrentConversation.Metadata.TotalPromptTokens += chunk.Metadata.PromptEvalCount ?? 0;
+                        CurrentConversation.Metadata.TotalCompletionTokens += chunk.Metadata.EvalCount ?? 0;
+                        UpdateConversationTokenSummary();
+                    }
+
                     _logger.LogInformation(
                         "Response complete. Tokens: {PromptTokens} in, {CompletionTokens} out, Duration: {Duration}ns",
                         chunk.Metadata.PromptEvalCount,
@@ -499,6 +615,26 @@ public partial class ChatViewModel : ObservableObject
                         chunk.Metadata.TotalDuration
                     );
                 }
+            }
+
+            // A reasoning model streams its thinking separately from its answer,
+            // and thinking is shown as status rather than kept. So a model that
+            // spends its whole token budget reasoning finishes with nothing to
+            // show, and the turn just looks silently blank. Say what happened
+            // instead, since the fix is a setting the user can change.
+            if (string.IsNullOrWhiteSpace(assistantMessage.Content))
+            {
+                var limit = defaults.MaxTokens;
+
+                assistantMessage.Content = completionTokens >= limit
+                    ? $"⚠️ The model used its entire {limit}-token budget before writing an answer. " +
+                      "Reasoning models can spend the whole allowance thinking. " +
+                      "Raise Max Tokens in Settings → Defaults, or use a model that reasons less."
+                    : "⚠️ The model returned an empty response.";
+
+                _logger.LogWarning(
+                    "Empty response: {Tokens} completion tokens against a {Limit}-token limit",
+                    completionTokens, limit);
             }
 
             CurrentConversation!.Messages.Add(assistantMessage);
@@ -531,23 +667,24 @@ public partial class ChatViewModel : ObservableObject
     {
         CurrentConversation = conversation;
 
-        if (!string.IsNullOrEmpty(conversation.Metadata.Provider))
-            CurrentProviderName = conversation.Metadata.Provider;
-
-        // A conversation can reference a model that has since been removed from the
-        // provider. Sending it anyway makes Ollama reply 404 "model not found", so
-        // fall back to something actually installed.
-        var savedModel = conversation.Metadata.ModelName;
-        if (!string.IsNullOrEmpty(savedModel) && AvailableModels.Contains(savedModel))
+        // Deliberately leaves the provider and model alone. The metadata records
+        // what produced these messages, which is history rather than a
+        // requirement: messages carry no provider-specific content, so an old
+        // conversation continues perfectly well under whichever model is
+        // selected now.
+        //
+        // Adopting it instead meant opening any conversation from before a
+        // provider was added switched away from the current one - and since the
+        // selection is saved as it changes, that overwrote the remembered choice
+        // for good. It also raced: assigning the provider starts an async model
+        // load, so the checks that followed read the previous provider's list.
+        if (!string.IsNullOrEmpty(conversation.Metadata.Provider) &&
+            conversation.Metadata.Provider != CurrentProviderName)
         {
-            CurrentModel = savedModel;
-        }
-        else if (AvailableModels.Count > 0)
-        {
-            _logger.LogWarning(
-                "Conversation model {SavedModel} is not available; falling back to {Fallback}",
-                savedModel, AvailableModels[0]);
-            CurrentModel = AvailableModels[0];
+            _logger.LogInformation(
+                "Conversation was created with {Provider}/{Model}; continuing with {CurrentProvider}/{CurrentModel}",
+                conversation.Metadata.Provider, conversation.Metadata.ModelName,
+                CurrentProviderName, CurrentModel);
         }
 
         Messages.Clear();
@@ -555,6 +692,8 @@ public partial class ChatViewModel : ObservableObject
         {
             Messages.Add(message);
         }
+
+        UpdateConversationTokenSummary();
 
         _logger.LogInformation("Loaded conversation: {Title} with {Count} messages",
             conversation.Title, conversation.Messages.Count);
@@ -567,6 +706,13 @@ public partial class ChatViewModel : ObservableObject
             if (CurrentConversation != null)
             {
                 CurrentConversation.UpdatedAt = DateTime.UtcNow;
+
+                // Record what is actually producing the messages. The metadata
+                // was only ever set when the conversation was created, so one
+                // continued under a different model kept reporting the original
+                // in the sidebar.
+                CurrentConversation.Metadata.Provider = CurrentProviderName;
+                CurrentConversation.Metadata.ModelName = CurrentModel;
 
                 // Auto-generate title from first user message if still default
                 if (CurrentConversation.Title == "New Conversation" && CurrentConversation.Messages.Count > 0)

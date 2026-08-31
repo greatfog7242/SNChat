@@ -66,7 +66,12 @@ public static class ImageSourcePreference
 public class DefaultParameters
 {
     public double Temperature { get; set; } = 0.7;
-    public int MaxTokens { get; set; } = 2048;
+    /// <summary>
+    /// Generous because reasoning models spend this budget thinking before they
+    /// write anything: at 2048 one can hit the limit mid-thought and return an
+    /// answer of nothing at all, having looked like it worked the whole time.
+    /// </summary>
+    public int MaxTokens { get; set; } = 8192;
     public double TopP { get; set; } = 0.9;
 
     /// <summary>Used on first run, before anything has been picked.</summary>
@@ -86,6 +91,15 @@ public class DefaultParameters
 
 public class ToolSettings
 {
+    /// <summary>
+    /// Whether the Tools switch starts on. Leaving it on means the model can
+    /// search without the switch having to be found first, at the cost of
+    /// sending every tool definition with each request: that is a larger prompt
+    /// on every turn, which a local model pays for in noticeably slower replies.
+    /// Turn it off here to go back to opting in per session.
+    /// </summary>
+    public bool EnabledByDefault { get; set; } = true;
+
     /// <summary>One of <see cref="ImageSourcePreference"/>.</summary>
     public string ImageSource { get; set; } = ImageSourcePreference.Auto;
 
