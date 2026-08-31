@@ -257,12 +257,21 @@ public class OllamaProvider : BaseLLMProvider
             // status line shows the tail of the reasoning so far.
             var thinking = new StringBuilder();
 
-            while (!reader.EndOfStream)
+            // Reads until ReadLineAsync returns null rather than testing
+            // EndOfStream, which is synchronous: it blocks on the socket to
+            // decide whether more data exists. This iterator resumes on the UI
+            // thread, so that block froze the whole window for as long as the
+            // model went without emitting a token - minutes, for a reasoning
+            // model that thinks before it answers.
+            while (true)
             {
                 if (cancellationToken.IsCancellationRequested)
                     yield break;
 
-                var line = await reader.ReadLineAsync(cancellationToken);
+                var line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+                if (line == null)
+                    break;
+
                 if (string.IsNullOrWhiteSpace(line))
                     continue;
 

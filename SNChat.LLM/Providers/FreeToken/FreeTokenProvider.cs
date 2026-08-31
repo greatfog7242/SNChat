@@ -178,9 +178,16 @@ public class FreeTokenProvider : BaseLLMProvider
         var totalPromptTokens = 0;
         var totalCompletionTokens = 0;
 
-        while (!reader.EndOfStream)
+        // Reads until ReadLineAsync returns null rather than testing
+        // EndOfStream, which is synchronous and blocks on the socket. This
+        // iterator resumes on the UI thread, so that block froze the window for
+        // as long as the model paused between tokens.
+        while (true)
         {
-            var line = await reader.ReadLineAsync();
+            var line = await reader.ReadLineAsync().ConfigureAwait(false);
+            if (line == null)
+                break;
+
             if (string.IsNullOrWhiteSpace(line) || !line.StartsWith("data: "))
                 continue;
 

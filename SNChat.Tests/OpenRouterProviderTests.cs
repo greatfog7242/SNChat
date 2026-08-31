@@ -328,6 +328,35 @@ public class OpenRouterProviderTests
         Assert.False(body.TryGetProperty("provider", out _));
     }
 
+    /// <summary>
+    /// OpenRouter reports usage in the final SSE message, and that message
+    /// carries an empty choices array. Reading it has to happen before the
+    /// per-choice handling, or the counts are skipped and every reply through
+    /// this provider shows no tokens at all.
+    /// </summary>
+    [Fact]
+    public async Task Usage_is_read_from_the_final_chunk_with_no_choices()
+    {
+        var sse = string.Join("\n", new[]
+        {
+            """data: {"choices":[{"delta":{"content":"hi"}}]}""",
+            """data: {"choices":[],"usage":{"prompt_tokens":6506,"completion_tokens":431,"total_tokens":6937}}""",
+            "data: [DONE]",
+            "",
+        });
+
+        StreamChunk? final = null;
+        await foreach (var chunk in Provider(sse).GenerateStreamAsync(NewRequest()))
+        {
+            if (chunk.IsFinal)
+                final = chunk;
+        }
+
+        Assert.NotNull(final?.Metadata);
+        Assert.Equal(6506, final!.Metadata!.PromptEvalCount);
+        Assert.Equal(431, final.Metadata.EvalCount);
+    }
+
     [Fact]
     public async Task Missing_api_key_is_reported_rather_than_sent()
     {

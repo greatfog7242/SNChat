@@ -371,13 +371,20 @@ public class OpenRouterProvider : BaseLLMProvider
             var toolCalls = new Dictionary<int, ToolCallAccumulator>();
             var reasoning = new StringBuilder();
             var finished = false;
+            OpenRouterUsage? usage = null;
 
-            while (!reader.EndOfStream)
+            // Reads until ReadLineAsync returns null rather than testing
+            // EndOfStream, which is synchronous and blocks on the socket. This
+            // iterator resumes on the UI thread, so that block froze the window
+            // for as long as the model paused between tokens.
+            while (true)
             {
                 if (cancellationToken.IsCancellationRequested)
                     yield break;
 
-                var line = await reader.ReadLineAsync(cancellationToken);
+                var line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+                if (line == null)
+                    break;
 
                 if (string.IsNullOrWhiteSpace(line))
                     continue;
@@ -407,6 +414,13 @@ public class OpenRouterProvider : BaseLLMProvider
                     Logger.LogWarning(ex, "Failed to deserialize OpenRouter chunk: {Data}", data);
                     continue;
                 }
+
+                // Read before the delta check below: usage arrives in the last
+                // message of the stream, and that message usually carries an
+                // empty choices array, so bailing out on a missing delta first
+                // would skip straight past the token counts.
+                if (chunk?.Usage != null)
+                    usage = chunk.Usage;
 
                 var choice = chunk?.Choices?.FirstOrDefault();
                 var delta = choice?.Delta ?? choice?.Message;
@@ -479,7 +493,19 @@ public class OpenRouterProvider : BaseLLMProvider
             {
                 yield return new StreamItem
                 {
-                    Chunk = new StreamChunk { Content = string.Empty, IsFinal = true }
+                    Chunk = new StreamChunk
+                    {
+                        Content = string.Empty,
+                        IsFinal = true,
+                        // Without this the caller sees no counts at all, so the
+                        // per-message and per-conversation totals stayed blank
+                        // for every reply that came through this provider.
+                        Metadata = usage == null ? null : new StreamMetadata
+                        {
+                            PromptEvalCount = usage.PromptTokens,
+                            EvalCount = usage.CompletionTokens
+                        }
+                    }
                 };
             }
         }
