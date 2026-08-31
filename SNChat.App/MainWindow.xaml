@@ -7,6 +7,7 @@
         xmlns:views="clr-namespace:SNChat.App.Views"
         mc:Ignorable="d"
         Title="SNChat - AI Chat Assistant"
+        Icon="Assets/icon.png"
         Height="700"
         Width="1200"
         WindowStartupLocation="CenterScreen">
