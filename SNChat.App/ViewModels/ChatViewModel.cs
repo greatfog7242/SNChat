@@ -1,10 +1,12 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using SNChat.Core.Interfaces;
 using SNChat.Core.Models;
+using SNChat.Core.Services;
 using SNChat.Core.Tools;
 using SNChat.LLM.Interfaces;
 using SNChat.LLM.Models;
@@ -16,6 +18,7 @@ public partial class ChatViewModel : ObservableObject
     private readonly ILLMProviderFactory _providerFactory;
     private readonly IStorageService _storageService;
     private readonly IToolRegistry _toolRegistry;
+    private readonly AttachmentService _attachmentService;
     private readonly ILogger<ChatViewModel> _logger;
     private CancellationTokenSource? _cancellationTokenSource;
     private ILLMProvider _currentProvider;
@@ -38,6 +41,25 @@ public partial class ChatViewModel : ObservableObject
     /// <summary>Transient progress text such as "Using web_search...".</summary>
     [ObservableProperty]
     private string _statusMessage = string.Empty;
+
+    /// <summary>
+    /// Sent ahead of the conversation on every request. Set when a template
+    /// carries one; empty otherwise.
+    /// </summary>
+    [ObservableProperty]
+    private string _systemPrompt = string.Empty;
+
+    /// <summary>Name of the template in use, shown in the toolbar.</summary>
+    [ObservableProperty]
+    private string _activeTemplateName = string.Empty;
+
+    public bool HasSystemPrompt => !string.IsNullOrWhiteSpace(SystemPrompt);
+
+    /// <summary>Files dropped but not yet sent with a message.</summary>
+    [ObservableProperty]
+    private ObservableCollection<Attachment> _pendingAttachments = new();
+
+    public bool HasPendingAttachments => PendingAttachments.Count > 0;
 
     // Left empty on purpose: the real value comes from whatever the provider
     // reports as installed. A hardcoded guess produces 404 "model not found".
@@ -65,11 +87,13 @@ public partial class ChatViewModel : ObservableObject
         ILLMProviderFactory providerFactory,
         IStorageService storageService,
         IToolRegistry toolRegistry,
+        AttachmentService attachmentService,
         ILogger<ChatViewModel> logger)
     {
         _providerFactory = providerFactory;
         _storageService = storageService;
         _toolRegistry = toolRegistry;
+        _attachmentService = attachmentService;
         _logger = logger;
 
         // Load available providers
@@ -132,23 +156,35 @@ public partial class ChatViewModel : ObservableObject
     [RelayCommand]
     private async Task SendMessageAsync()
     {
-        if (string.IsNullOrWhiteSpace(CurrentInput) || IsStreaming)
+        // An attachment on its own is a valid message; the file is the content.
+        if ((string.IsNullOrWhiteSpace(CurrentInput) && !HasPendingAttachments) || IsStreaming)
             return;
+
+        var attachments = PendingAttachments.ToList();
+        var typed = CurrentInput.Trim();
+
+        // File contents go ahead of the typed text so the question reads last,
+        // which keeps the model's attention on what is being asked.
+        var content = attachments.Count > 0
+            ? AttachmentService.BuildContextBlock(attachments) + typed
+            : typed;
 
         var userMessage = new Message
         {
             Role = MessageRole.User,
-            Content = CurrentInput.Trim(),
-            Timestamp = DateTime.UtcNow
+            Content = content,
+            Timestamp = DateTime.UtcNow,
+            Attachments = attachments
         };
 
         Messages.Add(userMessage);
         CurrentConversation?.Messages.Add(userMessage);
 
-        var userInput = CurrentInput;
         CurrentInput = string.Empty;
+        PendingAttachments.Clear();
+        OnPropertyChanged(nameof(HasPendingAttachments));
 
-        await GenerateResponseAsync(userInput);
+        await GenerateResponseAsync(typed);
     }
 
     [RelayCommand]
@@ -161,6 +197,78 @@ public partial class ChatViewModel : ObservableObject
         }
 
         StartNewConversation();
+    }
+
+    /// <summary>
+    /// Copies dropped files into the current conversation's folder and queues
+    /// them for the next message. Reports which ones were rejected rather than
+    /// dropping them silently.
+    /// </summary>
+    public async Task AddAttachmentsAsync(IEnumerable<string> paths)
+    {
+        if (CurrentConversation == null)
+            return;
+
+        var rejected = new List<string>();
+
+        foreach (var path in paths)
+        {
+            var attachment = await _attachmentService.AttachAsync(path, CurrentConversation.Id);
+
+            if (attachment == null)
+                rejected.Add(Path.GetFileName(path));
+            else
+                PendingAttachments.Add(attachment);
+        }
+
+        OnPropertyChanged(nameof(HasPendingAttachments));
+
+        if (rejected.Count > 0)
+        {
+            MessageBox.Show(
+                $"These files could not be attached:\n\n{string.Join("\n", rejected)}\n\n" +
+                $"Files must exist and be under {AttachmentService.MaxFileSizeBytes / (1024 * 1024)} MB.",
+                "Some files were skipped",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+    }
+
+    [RelayCommand]
+    private void RemoveAttachment(Attachment? attachment)
+    {
+        if (attachment == null)
+            return;
+
+        PendingAttachments.Remove(attachment);
+        OnPropertyChanged(nameof(HasPendingAttachments));
+    }
+
+    /// <summary>
+    /// Puts a template's filled-in prompt into the input box rather than sending
+    /// it, so it can still be edited before going out.
+    /// </summary>
+    public void ApplyTemplate(string prompt, string systemPrompt, string templateName)
+    {
+        CurrentInput = prompt;
+        ActiveTemplateName = templateName;
+
+        if (!string.IsNullOrWhiteSpace(systemPrompt))
+        {
+            SystemPrompt = systemPrompt;
+            OnPropertyChanged(nameof(HasSystemPrompt));
+        }
+
+        _logger.LogInformation("Applied template {Name} (system prompt: {HasSystem})",
+            templateName, !string.IsNullOrWhiteSpace(systemPrompt));
+    }
+
+    [RelayCommand]
+    private void ClearTemplate()
+    {
+        SystemPrompt = string.Empty;
+        ActiveTemplateName = string.Empty;
+        OnPropertyChanged(nameof(HasSystemPrompt));
     }
 
     [RelayCommand]
@@ -258,6 +366,7 @@ public partial class ChatViewModel : ObservableObject
                     Temperature = 0.7,
                     MaxTokens = 2000
                 },
+                SystemPrompt = string.IsNullOrWhiteSpace(SystemPrompt) ? null : SystemPrompt,
                 CancellationToken = _cancellationTokenSource.Token,
                 Tools = WebSearchEnabled
                     ? _toolRegistry.GetTools()

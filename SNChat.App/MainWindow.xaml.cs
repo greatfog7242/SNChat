@@ -12,6 +12,7 @@ public partial class MainWindow : Window
     private readonly ChatViewModel _chatViewModel;
     private readonly ConversationListViewModel _conversationListViewModel;
     private readonly IServiceProvider _serviceProvider;
+    private readonly ChatView _chatView;
 
     public MainWindow(IServiceProvider serviceProvider)
     {
@@ -23,10 +24,10 @@ public partial class MainWindow : Window
         _conversationListViewModel = serviceProvider.GetRequiredService<ConversationListViewModel>();
 
         // Create ChatView with service provider for settings
-        var chatView = new ChatView(_chatViewModel, serviceProvider);
+        _chatView = new ChatView(_chatViewModel, serviceProvider);
         ((System.Windows.Controls.Grid)Content).Children.Remove(ChatViewControl);
-        System.Windows.Controls.Grid.SetColumn(chatView, 2);
-        ((System.Windows.Controls.Grid)Content).Children.Add(chatView);
+        System.Windows.Controls.Grid.SetColumn(_chatView, 2);
+        ((System.Windows.Controls.Grid)Content).Children.Add(_chatView);
 
         // Set DataContext for conversation list
         ConversationListControl.DataContext = _conversationListViewModel;
@@ -51,6 +52,10 @@ public partial class MainWindow : Window
         InputBindings.Add(new KeyBinding(
             new RelayCommand(FocusConversationSearch),
             Key.F, ModifierKeys.Control));
+
+        InputBindings.Add(new KeyBinding(
+            new RelayCommand(() => _chatView?.ShowTemplatePicker()),
+            Key.T, ModifierKeys.Control));
     }
 
     private void FocusConversationSearch()

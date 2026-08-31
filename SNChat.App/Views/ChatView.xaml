@@ -5,11 +5,16 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:local="clr-namespace:SNChat.App.Views"
              xmlns:viewmodels="clr-namespace:SNChat.App.ViewModels"
+             xmlns:models="clr-namespace:SNChat.Core.Models;assembly=SNChat.Core"
              xmlns:markdig="clr-namespace:Markdig.Wpf;assembly=Markdig.Wpf"
              xmlns:behaviors="clr-namespace:SNChat.App.Behaviors"
              mc:Ignorable="d"
              d:DesignHeight="600" d:DesignWidth="800"
-             d:DataContext="{d:DesignInstance Type=viewmodels:ChatViewModel}">
+             d:DataContext="{d:DesignInstance Type=viewmodels:ChatViewModel}"
+             AllowDrop="True"
+             DragOver="ChatView_DragOver"
+             DragLeave="ChatView_DragLeave"
+             Drop="ChatView_Drop">
     <UserControl.Resources>
         <!-- Markdown Styles -->
         <Style x:Key="MarkdownViewerStyle" TargetType="markdig:MarkdownViewer">
@@ -93,6 +98,47 @@
                                            Background="Transparent"
                                            behaviors:CodeBlockCopyBehavior.Enabled="True"/>
 
+                    <!-- Display attached images -->
+                    <ItemsControl ItemsSource="{Binding Attachments}" Margin="0,8,0,0">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Margin="0,0,8,8"
+                                        BorderBrush="#CCCCCC"
+                                        BorderThickness="1"
+                                        CornerRadius="4"
+                                        Background="White">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Type}" Value="{x:Static models:AttachmentType.Image}">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                        </Style>
+                                    </Border.Style>
+                                    <StackPanel>
+                                        <Image Source="{Binding FilePath, Converter={StaticResource FilePathToUriConverter}}"
+                                               MaxWidth="400"
+                                               MaxHeight="400"
+                                               Stretch="Uniform"
+                                               Margin="4"/>
+                                        <TextBlock Text="{Binding FileName}"
+                                                   FontSize="10"
+                                                   Opacity="0.6"
+                                                   Margin="4,0,4,4"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
                     <!-- Footer: timestamp plus copy actions revealed on hover -->
                     <Grid Margin="0,4,0,0">
                         <TextBlock Text="{Binding Timestamp, StringFormat='HH:mm:ss'}"
@@ -141,6 +187,26 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
+        <!-- Drop hint, shown while files are dragged over the view -->
+        <Border x:Name="DropOverlay"
+                Grid.RowSpan="3"
+                Panel.ZIndex="100"
+                Background="#CC2196F3"
+                Visibility="Collapsed">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                <TextBlock Text="📎" FontSize="42" HorizontalAlignment="Center" Foreground="White"/>
+                <TextBlock Text="Drop files to attach them"
+                           FontSize="17"
+                           FontWeight="SemiBold"
+                           Foreground="White"
+                           Margin="0,10,0,0"/>
+                <TextBlock Text="Text and code files are read; other types are attached by name only"
+                           FontSize="11"
+                           Foreground="#E3F2FD"
+                           Margin="0,6,0,0"/>
+            </StackPanel>
+        </Border>
+
         <!-- Toolbar -->
         <Border Grid.Row="0" Background="#F0F0F0" BorderBrush="#CCCCCC" BorderThickness="0,0,0,1" Padding="10">
             <Grid>
@@ -155,10 +221,42 @@
                             Padding="10,5"
                             Margin="0,0,10,0"
                             IsEnabled="{Binding IsStreaming}"/>
+                    <Button Content="📋 Templates"
+                            Click="TemplatesButton_Click"
+                            Padding="10,5"
+                            Margin="0,0,10,0"
+                            ToolTip="Insert a saved prompt template (Ctrl+T)"/>
                     <Button Content="⚙ Settings"
                             Click="SettingsButton_Click"
                             Padding="10,5"
                             Margin="0,0,10,0"/>
+
+                    <!-- Shown only while a template's system prompt is active -->
+                    <Border Background="#E8F5E9"
+                            BorderBrush="#A5D6A7"
+                            BorderThickness="1"
+                            CornerRadius="3"
+                            Padding="6,3"
+                            Margin="0,0,10,0"
+                            VerticalAlignment="Center"
+                            Visibility="{Binding HasSystemPrompt, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding ActiveTemplateName}"
+                                       FontSize="11"
+                                       Foreground="#2E7D32"
+                                       VerticalAlignment="Center"/>
+                            <Button Content="✕"
+                                    Command="{Binding ClearTemplateCommand}"
+                                    FontSize="9"
+                                    Padding="4,0"
+                                    Margin="6,0,0,0"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    Foreground="#2E7D32"
+                                    Cursor="Hand"
+                                    ToolTip="Clear this template's system prompt"/>
+                        </StackPanel>
+                    </Border>
                     <CheckBox Content="🔎 Web search"
                               IsChecked="{Binding WebSearchEnabled}"
                               VerticalAlignment="Center"
@@ -218,11 +316,57 @@
                 Padding="10">
             <Grid>
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <TextBox Grid.Row="0"
+                <!-- Queued attachments, shown until the message is sent -->
+                <ItemsControl Grid.Row="0"
+                              ItemsSource="{Binding PendingAttachments}"
+                              Margin="0,0,0,6"
+                              Visibility="{Binding HasPendingAttachments, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Background="#E3F2FD"
+                                    BorderBrush="#90CAF9"
+                                    BorderThickness="1"
+                                    CornerRadius="3"
+                                    Padding="6,3"
+                                    Margin="0,0,6,4">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="📎" FontSize="11" Margin="0,0,4,0" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding FileName}"
+                                               FontSize="11"
+                                               Foreground="#1565C0"
+                                               VerticalAlignment="Center"
+                                               MaxWidth="220"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <Button Content="✕"
+                                            FontSize="9"
+                                            Padding="4,0"
+                                            Margin="6,0,0,0"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            Foreground="#1565C0"
+                                            Cursor="Hand"
+                                            ToolTip="Remove this attachment"
+                                            Command="{Binding DataContext.RemoveAttachmentCommand,
+                                                      RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}"/>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBox Grid.Row="1"
+                         x:Name="MessageInput"
                          Text="{Binding CurrentInput, UpdateSourceTrigger=PropertyChanged}"
                          AcceptsReturn="True"
                          TextWrapping="Wrap"
@@ -231,16 +375,15 @@
                          MaxHeight="150"
                          Padding="8"
                          FontSize="14"
+                         PreviewKeyDown="MessageInput_PreviewKeyDown"
                          IsEnabled="{Binding IsStreaming, Converter={StaticResource InverseBooleanConverter}}">
-                    <TextBox.InputBindings>
-                        <KeyBinding Key="Return"
-                                    Modifiers="Control"
-                                    Command="{Binding SendMessageCommand}"/>
-                    </TextBox.InputBindings>
+                    <!-- Enter sends, Shift+Enter inserts a newline; handled in
+                         code-behind because a KeyBinding cannot distinguish the
+                         two without also swallowing the newline case. -->
                 </TextBox>
 
-                <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,5,0,0">
-                    <TextBlock Text="Ctrl+Enter to send"
+                <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,5,0,0">
+                    <TextBlock Text="Enter to send · Shift+Enter for a new line"
                                VerticalAlignment="Center"
                                Margin="0,0,10,0"
                                FontSize="11"
@@ -254,7 +397,7 @@
 
                 <!-- Streaming indicator overlay on input area -->
                 <Border Grid.Row="0"
-                        Grid.RowSpan="2"
+                        Grid.RowSpan="3"
                         Background="#80000000"
                         Visibility="{Binding IsStreaming, Converter={StaticResource BooleanToVisibilityConverter}}"
                         CornerRadius="4">

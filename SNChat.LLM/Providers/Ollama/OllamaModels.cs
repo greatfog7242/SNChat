@@ -39,6 +39,14 @@ public class OllamaMessage
     [JsonPropertyName("tool_name")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ToolName { get; set; }
+
+    /// <summary>
+    /// Base64-encoded images for vision-capable models. Ollama takes these on the
+    /// message rather than inline in the content.
+    /// </summary>
+    [JsonPropertyName("images")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Images { get; set; }
 }
 
 // Tool definitions sent to Ollama (OpenAI-compatible shape).

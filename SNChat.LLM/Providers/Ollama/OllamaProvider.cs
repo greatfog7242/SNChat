@@ -352,7 +352,8 @@ public class OllamaProvider : BaseLLMProvider
         messages.AddRange(request.Messages.Select(m => new OllamaMessage
         {
             Role = m.Role.ToString().ToLowerInvariant(),
-            Content = m.Content
+            Content = m.Content,
+            Images = EncodeImages(m)
         }));
 
         return new OllamaChatRequest
@@ -375,6 +376,50 @@ public class OllamaProvider : BaseLLMProvider
                 Stop = request.Parameters.StopSequences
             }
         };
+    }
+
+    /// <summary>
+    /// Reads any image attachments and base64-encodes them for vision models.
+    /// Returns null when the message has none, so the field is omitted entirely
+    /// rather than sent as an empty array.
+    /// </summary>
+    private List<string>? EncodeImages(Message message)
+    {
+        if (message.Attachments.Count == 0)
+            return null;
+
+        List<string>? encoded = null;
+
+        foreach (var attachment in message.Attachments)
+        {
+            if (attachment.Type != AttachmentType.Image)
+                continue;
+
+            // SVG is vector text, not a raster image a vision model can consume.
+            if (attachment.MimeType == "image/svg+xml")
+            {
+                Logger.LogInformation("Skipping SVG attachment {Name}; not a raster image",
+                    attachment.FileName);
+                continue;
+            }
+
+            try
+            {
+                var bytes = File.ReadAllBytes(attachment.ImagePathForModel);
+                (encoded ??= new List<string>()).Add(Convert.ToBase64String(bytes));
+            }
+            catch (Exception ex)
+            {
+                // A missing or unreadable file should not sink the whole request.
+                Logger.LogWarning(ex, "Could not read image attachment {Path}",
+                    attachment.FilePath);
+            }
+        }
+
+        if (encoded != null)
+            Logger.LogInformation("Attached {Count} image(s) to the request", encoded.Count);
+
+        return encoded;
     }
 
     private static OllamaTool ToOllamaTool(ITool tool) => new()

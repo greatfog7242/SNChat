@@ -88,6 +88,9 @@ public partial class App : Application
         // Register core services
         services.AddSingleton<IStorageService, StorageService>();
         services.AddSingleton<SettingsService>();
+        services.AddSingleton<TemplateService>();
+        services.AddSingleton<IImageResizer, Services.WpfImageResizer>();
+        services.AddSingleton<AttachmentService>();
 
         // Tools the model can invoke
         services.AddHttpClient<WebSearchTool>(client =>
@@ -149,6 +152,7 @@ public partial class App : Application
         services.AddTransient<ViewModels.ChatViewModel>();
         services.AddTransient<ViewModels.ConversationListViewModel>();
         services.AddTransient<ViewModels.SettingsViewModel>();
+        services.AddTransient<ViewModels.TemplatePickerViewModel>();
 
         // Register Views
         services.AddSingleton<MainWindow>();
