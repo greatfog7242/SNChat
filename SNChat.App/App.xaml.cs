@@ -120,8 +120,17 @@ public partial class App : Application
         services.AddSingleton<IToolRegistry>(sp =>
         {
             var registry = new ToolRegistry(sp.GetRequiredService<ILogger<ToolRegistry>>());
-            registry.Register(sp.GetRequiredService<WebSearchTool>());
-            registry.Register(sp.GetRequiredService<ImageSearchTool>());
+
+            // WebSearchTool and ImageSearchTool are deliberately not registered.
+            // Every backend they can reach is gone: Bing's API retired in 2025,
+            // Google's Custom Search JSON API is closed to new projects and ends
+            // in January 2027, and the DuckDuckGo endpoint only ever answered
+            // for encyclopedic entities. They return nothing, but the model
+            // cannot tell them apart from the working MCP search and has been
+            // seen calling both in one turn, spending its tool budget on calls
+            // that cannot succeed. Search now comes from an MCP server; see
+            // MCP_AND_SEARCH_RUNBOOK.md. They stay in the container so
+            // re-registering is a one-line change if a backend revives.
             return registry;
         });
 

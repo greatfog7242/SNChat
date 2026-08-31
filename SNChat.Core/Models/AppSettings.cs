@@ -72,6 +72,15 @@ public class ToolSettings
     /// Each server provides tools that the LLM can use.
     /// </summary>
     public List<McpServerConfig> McpServers { get; set; } = new();
+
+    /// <summary>
+    /// How many rounds of tool calls the model may make before it has to answer.
+    /// Raise it for research that needs several searches to narrow down; lower
+    /// it to fail faster when each round is expensive, as with a large local
+    /// model. A round can contain more than one call, so the real number of
+    /// calls allowed is higher than this.
+    /// </summary>
+    public int MaxToolIterations { get; set; } = 10;
 }
 
 /// <summary>Configuration for an MCP server.</summary>

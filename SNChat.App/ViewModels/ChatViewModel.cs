@@ -19,6 +19,7 @@ public partial class ChatViewModel : ObservableObject
     private readonly IStorageService _storageService;
     private readonly IToolRegistry _toolRegistry;
     private readonly AttachmentService _attachmentService;
+    private readonly SettingsService _settingsService;
     private readonly ILogger<ChatViewModel> _logger;
     private CancellationTokenSource? _cancellationTokenSource;
     private ILLMProvider _currentProvider;
@@ -88,12 +89,14 @@ public partial class ChatViewModel : ObservableObject
         IStorageService storageService,
         IToolRegistry toolRegistry,
         AttachmentService attachmentService,
+        SettingsService settingsService,
         ILogger<ChatViewModel> logger)
     {
         _providerFactory = providerFactory;
         _storageService = storageService;
         _toolRegistry = toolRegistry;
         _attachmentService = attachmentService;
+        _settingsService = settingsService;
         _logger = logger;
 
         // Load available providers
@@ -374,7 +377,8 @@ public partial class ChatViewModel : ObservableObject
                 CancellationToken = _cancellationTokenSource.Token,
                 Tools = WebSearchEnabled
                     ? _toolRegistry.GetTools()
-                    : Array.Empty<ITool>()
+                    : Array.Empty<ITool>(),
+                MaxToolIterations = _settingsService.GetCachedSettings().Tools.MaxToolIterations
             };
 
             _logger.LogDebug("Sending request to {Provider}: {MessageCount} messages, {ToolCount} tool(s)",
