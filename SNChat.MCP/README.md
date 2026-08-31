@@ -66,12 +66,18 @@ JSON-RPC Messages
 
 ## Available MCP Servers
 
-Community MCP servers you can use:
-- **@modelcontextprotocol/server-filesystem** - File operations
-- **@modelcontextprotocol/server-git** - Git operations
-- **@modelcontextprotocol/server-sqlite** - SQLite queries
-- **@modelcontextprotocol/server-postgres** - PostgreSQL queries
-- Many more at https://github.com/modelcontextprotocol
+Community MCP servers you can use. Note that the runner differs by registry —
+npm packages run with `npx`, PyPI packages with `uvx`:
+
+| Server | Package | Runner |
+|---|---|---|
+| File operations | `@modelcontextprotocol/server-filesystem` | `npx` |
+| Persistent memory | `@modelcontextprotocol/server-memory` | `npx` |
+| Git operations | `mcp-server-git` | `uvx` |
+| SQLite queries | `mcp-server-sqlite` | `uvx` |
+| HTTP fetch | `mcp-server-fetch` | `uvx` |
+
+Many more at https://github.com/modelcontextprotocol/servers
 
 ## License
 

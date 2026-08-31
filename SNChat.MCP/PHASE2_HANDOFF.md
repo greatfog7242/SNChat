@@ -94,7 +94,7 @@ See `PHASE2_TESTING.md` for complete testing guide.
 
 1. Install: `npm install -g @modelcontextprotocol/server-filesystem`
 
-2. Edit `%APPDATA%\SNChat\settings.json`:
+2. Edit `%APPDATA%\SNChat\config\settings.json`:
 ```json
 {
   "tools": {

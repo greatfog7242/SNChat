@@ -19,7 +19,7 @@ npm install -g @modelcontextprotocol/server-filesystem
 
 ### 2. Configure SNChat
 
-Edit `%APPDATA%\SNChat\settings.json` and add MCP server configuration:
+Edit `%APPDATA%\SNChat\config\settings.json` and add MCP server configuration:
 
 ```json
 {
@@ -54,11 +54,14 @@ Check the logs at `%APPDATA%\SNChat\logs\` for:
 ```
 Initializing 1 MCP server(s)
 Connecting to MCP server: Filesystem (npx -y @modelcontextprotocol/server-filesystem C:\temp)
-Connected to @modelcontextprotocol/server-filesystem v0.1.0
-Discovered 5 tool(s) from Filesystem
-Successfully registered 5/5 tools from Filesystem
-MCP initialization complete. 1 server(s) connected, 5 tool(s) registered
+Connected to secure-filesystem-server v0.2.0
+Discovered 14 tool(s) from Filesystem
+Successfully registered 14/14 tools from Filesystem
+MCP initialization complete. 1 server(s) connected, 14 tool(s) registered
 ```
+
+The server reports itself as `secure-filesystem-server`; that is the internal
+name of the `@modelcontextprotocol/server-filesystem` package, not a mismatch.
 
 ### 4. Test in Conversation
 
@@ -96,38 +99,53 @@ The LLM should:
 
 When you configure the filesystem server, these tools become available:
 
+Verified against `secure-filesystem-server` v0.2.0 — 14 tools:
+
 | Tool | Description |
 |------|-------------|
-| `read_file` | Read complete contents of a file |
+| `read_text_file` | Read a file as text |
+| `read_media_file` | Read an image or audio file as base64 |
 | `read_multiple_files` | Read multiple files at once |
+| `read_file` | Deprecated; use `read_text_file` |
 | `write_file` | Create or overwrite a file |
 | `edit_file` | Make line-based edits |
-| `list_directory` | List directory contents with details |
 | `create_directory` | Create a new directory |
+| `list_directory` | List directory contents with details |
+| `list_directory_with_sizes` | Same, including file sizes |
+| `directory_tree` | Recursive tree as JSON |
 | `move_file` | Move or rename files |
-| `search_files` | Search for files by pattern |
+| `search_files` | Recursive glob search |
+| `get_file_info` | File metadata |
+| `list_allowed_directories` | Report which folders are in scope |
 
 ## Other MCP Servers to Try
 
 ### Git Operations
+
+Note the runner: git is a PyPI package run with `uvx`, not an npm package.
+There is no `@modelcontextprotocol/server-git` on npm.
+
 ```json
 {
-  "name": "Git",
-  "command": "npx",
-  "arguments": "-y @modelcontextprotocol/server-git --repository C:\\projects\\myrepo",
-  "enabled": true
+  "Name": "Git",
+  "Command": "uvx",
+  "Arguments": "mcp-server-git --repository C:\\projects\\myrepo",
+  "Enabled": true
 }
 ```
 
 Ask: "What's the most recent commit?" or "Show me uncommitted changes"
 
 ### SQLite Database
+
+Also PyPI, also `uvx`.
+
 ```json
 {
-  "name": "Database",
-  "command": "npx",
-  "arguments": "-y @modelcontextprotocol/server-sqlite --db-path C:\\data\\app.db",
-  "enabled": true
+  "Name": "Database",
+  "Command": "uvx",
+  "Arguments": "mcp-server-sqlite --db-path C:\\data\\app.db",
+  "Enabled": true
 }
 ```
 
@@ -139,25 +157,25 @@ You can enable multiple MCP servers at once:
 
 ```json
 {
-  "tools": {
-    "mcpServers": [
+  "Tools": {
+    "McpServers": [
       {
-        "name": "Workspace Files",
-        "command": "npx",
-        "arguments": "-y @modelcontextprotocol/server-filesystem C:\\workspace",
-        "enabled": true
+        "Name": "Workspace Files",
+        "Command": "npx",
+        "Arguments": "-y @modelcontextprotocol/server-filesystem C:\\workspace",
+        "Enabled": true
       },
       {
-        "name": "Project Git",
-        "command": "npx",
-        "arguments": "-y @modelcontextprotocol/server-git --repository C:\\workspace\\project",
-        "enabled": true
+        "Name": "Project Git",
+        "Command": "uvx",
+        "Arguments": "mcp-server-git --repository C:\\workspace\\project",
+        "Enabled": true
       },
       {
-        "name": "App Database",
-        "command": "npx",
-        "arguments": "-y @modelcontextprotocol/server-sqlite --db-path C:\\data\\app.db",
-        "enabled": false
+        "Name": "App Database",
+        "Command": "uvx",
+        "Arguments": "mcp-server-sqlite --db-path C:\\data\\app.db",
+        "Enabled": false
       }
     ]
   }
@@ -169,7 +187,7 @@ All enabled servers start automatically, and all their tools are available to th
 ## Troubleshooting
 
 ### "No MCP servers configured"
-Check `%APPDATA%\SNChat\settings.json` has the `mcpServers` array under `tools`.
+Check `%APPDATA%\SNChat\config\settings.json` has the `mcpServers` array under `tools`.
 
 ### Server fails to start
 - Check the command is correct: `npx` should be in PATH
@@ -182,7 +200,10 @@ Check `%APPDATA%\SNChat\settings.json` has the `mcpServers` array under `tools`.
 - Try restarting the app
 
 ### LLM doesn't use MCP tools
-- The LLM must have web search enabled (the tools checkbox)
+- **Tick the 🔎 Web search checkbox.** Despite the label it gates *every* tool,
+  MCP included; unchecked, no tools are sent to the model at all
+- The model must support tool calling — many small local models ignore tool
+  definitions entirely
 - Make sure you're asking for something the tool can do
 - The filesystem server only has access to the directory you configured
 
