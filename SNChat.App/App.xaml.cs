@@ -103,6 +103,11 @@ public partial class App : Application
         services.AddSingleton<IImageResizer, Services.WpfImageResizer>();
         services.AddSingleton<AttachmentService>();
 
+        services.AddHttpClient<WebImageCacheService>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+
         // Tools the model can invoke
         services.AddHttpClient<WebSearchTool>(client =>
         {
