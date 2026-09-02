@@ -79,9 +79,10 @@ public partial class App : Application
     private void ConfigureServices(IServiceCollection services)
     {
         // Register HttpClients for LLM providers
+        // The address is set by the provider from settings, since it can point
+        // at another machine on the network rather than this one.
         services.AddHttpClient<OllamaProvider>(client =>
         {
-            client.BaseAddress = new Uri("http://localhost:11434");
             client.Timeout = TimeSpan.FromMinutes(5);
         });
 
@@ -153,7 +154,8 @@ public partial class App : Application
         services.AddSingleton<OllamaProvider>(sp => new OllamaProvider(
             sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(OllamaProvider)),
             sp.GetRequiredService<ILogger<OllamaProvider>>(),
-            sp.GetRequiredService<IToolRegistry>()));
+            sp.GetRequiredService<IToolRegistry>(),
+            sp.GetRequiredService<SettingsService>().GetCachedSettings().Providers.OllamaBaseUrl));
         services.AddSingleton<FreeTokenProvider>(sp =>
         {
             var httpClient = sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(FreeTokenProvider));

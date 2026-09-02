@@ -15,15 +15,23 @@ public class OllamaProvider : BaseLLMProvider
 {
     private readonly IToolRegistry? _toolRegistry;
 
-    protected override string BaseUrl => "http://localhost:11434";
+    /// <summary>
+    /// Configurable because Ollama is not always on the machine running this:
+    /// one host with a capable GPU commonly serves several clients over a
+    /// network. Fixed at construction, as it sets the HttpClient's address.
+    /// </summary>
+    protected override string BaseUrl { get; }
+
     public override string Name => "Ollama";
 
     public OllamaProvider(
         HttpClient httpClient,
         ILogger<OllamaProvider> logger,
-        IToolRegistry? toolRegistry = null)
+        IToolRegistry? toolRegistry = null,
+        string? baseUrl = null)
         : base(httpClient, logger)
     {
+        BaseUrl = string.IsNullOrWhiteSpace(baseUrl) ? "http://localhost:11434" : baseUrl.TrimEnd('/');
         httpClient.BaseAddress = new Uri(BaseUrl);
         _toolRegistry = toolRegistry;
     }
