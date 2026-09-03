@@ -107,13 +107,30 @@
                             <ItemsControl ItemsSource="{Binding Conversations}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <Border Style="{StaticResource ConversationItemStyle}">
+                                        <!-- Tag carries the view model across to the context menu, which
+                                             sits in its own popup tree and so cannot walk up to the UserControl. -->
+                                        <Border Style="{StaticResource ConversationItemStyle}"
+                                                Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}">
                                             <Border.InputBindings>
                                                 <MouseBinding MouseAction="LeftClick"
                                                             Command="{Binding DataContext.SelectConversationCommand,
                                                                     RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                             CommandParameter="{Binding}"/>
                                             </Border.InputBindings>
+                                            <Border.ContextMenu>
+                                                <ContextMenu DataContext="{Binding PlacementTarget.Tag,
+                                                                     RelativeSource={RelativeSource Self}}">
+                                                    <MenuItem Header="Rename..."
+                                                             Command="{Binding RenameConversationCommand}"
+                                                             CommandParameter="{Binding PlacementTarget.DataContext,
+                                                                     RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                                    <Separator/>
+                                                    <MenuItem Header="Delete"
+                                                             Command="{Binding DeleteConversationCommand}"
+                                                             CommandParameter="{Binding PlacementTarget.DataContext,
+                                                                     RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                                </ContextMenu>
+                                            </Border.ContextMenu>
 
                                             <Grid>
                                                 <Grid.RowDefinitions>

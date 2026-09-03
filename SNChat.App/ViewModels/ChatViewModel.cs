@@ -21,6 +21,7 @@ public partial class ChatViewModel : ObservableObject
     private readonly IToolRegistry _toolRegistry;
     private readonly AttachmentService _attachmentService;
     private readonly SettingsService _settingsService;
+    private readonly WebImageCacheService _webImageCache;
     private readonly ILogger<ChatViewModel> _logger;
     private CancellationTokenSource? _cancellationTokenSource;
     private ILLMProvider _currentProvider;
@@ -146,6 +147,7 @@ public partial class ChatViewModel : ObservableObject
         IToolRegistry toolRegistry,
         AttachmentService attachmentService,
         SettingsService settingsService,
+        WebImageCacheService webImageCache,
         ILogger<ChatViewModel> logger)
     {
         _providerFactory = providerFactory;
@@ -153,6 +155,7 @@ public partial class ChatViewModel : ObservableObject
         _toolRegistry = toolRegistry;
         _attachmentService = attachmentService;
         _settingsService = settingsService;
+        _webImageCache = webImageCache;
         _logger = logger;
 
         // Load available providers
@@ -649,6 +652,13 @@ public partial class ChatViewModel : ObservableObject
                     "Empty response: {Tokens} completion tokens against a {Limit}-token limit",
                     completionTokens, limit);
             }
+
+            // Pictures a search returned are hosted on third-party servers whose
+            // URLs expire, so they are copied into the conversation folder before
+            // the reply is stored. Not given the cancellation token: the answer is
+            // already complete, and cancelling here would discard it.
+            assistantMessage.Content = await _webImageCache.CacheImagesAsync(
+                assistantMessage.Content, CurrentConversation!.Id);
 
             CurrentConversation!.Messages.Add(assistantMessage);
             await SaveConversationAsync();

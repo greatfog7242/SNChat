@@ -48,6 +48,9 @@ public partial class SettingsViewModel : ObservableObject
 
     // Provider Settings
     [ObservableProperty]
+    private string _ollamaBaseUrl = "http://localhost:11434";
+
+    [ObservableProperty]
     private string _freeTokenApiKey = string.Empty;
 
     [ObservableProperty]
@@ -242,6 +245,7 @@ public partial class SettingsViewModel : ObservableObject
             var settings = await _settingsService.LoadSettingsAsync();
 
             // Provider Settings
+            OllamaBaseUrl = settings.Providers.OllamaBaseUrl;
             FreeTokenApiKey = settings.Providers.FreeTokenApiKey;
             FreeTokenBaseUrl = settings.Providers.FreeTokenBaseUrl;
             OpenRouterApiKey = settings.Providers.OpenRouterApiKey;
@@ -297,6 +301,7 @@ public partial class SettingsViewModel : ObservableObject
             // empty and destroy the user's MCP configuration on every save.
             var settings = _settingsService.GetCachedSettings();
 
+            settings.Providers.OllamaBaseUrl = OllamaBaseUrl;
             settings.Providers.FreeTokenApiKey = FreeTokenApiKey;
             settings.Providers.FreeTokenBaseUrl = FreeTokenBaseUrl;
             settings.Providers.OpenRouterApiKey = OpenRouterApiKey;
@@ -375,6 +380,7 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    partial void OnOllamaBaseUrlChanged(string value) => HasUnsavedChanges = true;
     partial void OnFreeTokenApiKeyChanged(string value) => HasUnsavedChanges = true;
     partial void OnFreeTokenBaseUrlChanged(string value) => HasUnsavedChanges = true;
     partial void OnOpenRouterApiKeyChanged(string value) => HasUnsavedChanges = true;

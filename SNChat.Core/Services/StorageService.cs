@@ -43,9 +43,15 @@ public class StorageService : IStorageService
 
     public string GetConversationFilePath(Guid id)
     {
-        var conversationDir = GetConversationDirectory(id);
+        // Stays in the folder it was first filed under, so a conversation
+        // continued after a month boundary does not split in two and leave its
+        // attachments behind.
+        var conversationDir = FindConversationDirectory(id) ?? GetConversationDirectory(id);
+
         Directory.CreateDirectory(conversationDir);
-        Directory.CreateDirectory(Path.Combine(conversationDir, "attachments"));
+        Directory.CreateDirectory(
+            Path.Combine(conversationDir, ConversationPaths.AttachmentsFolderName));
+
         return Path.Combine(conversationDir, "conversation.md");
     }
 
@@ -135,8 +141,33 @@ public class StorageService : IStorageService
 
     public string GetAttachmentsDirectory(Guid conversationId)
     {
-        var conversationDir = GetConversationDirectory(conversationId);
-        return Path.Combine(conversationDir, "attachments");
+        // Deliberately not GetConversationDirectory: that derives the month
+        // folder from today, so a conversation started last month would have its
+        // attachments written beside a conversation.md that is not there.
+        var conversationDir = FindConversationDirectory(conversationId)
+                              ?? GetConversationDirectory(conversationId);
+
+        return Path.Combine(conversationDir, ConversationPaths.AttachmentsFolderName);
+    }
+
+    /// <summary>
+    /// Locates the folder a conversation already occupies, whichever month it
+    /// was filed under. Returns null when it has never been saved.
+    /// </summary>
+    private string? FindConversationDirectory(Guid id)
+    {
+        var conversationsDir = Path.Combine(_baseDirectory, "conversations");
+        if (!Directory.Exists(conversationsDir))
+            return null;
+
+        foreach (var monthDir in Directory.GetDirectories(conversationsDir))
+        {
+            var candidate = Path.Combine(monthDir, id.ToString());
+            if (Directory.Exists(candidate))
+                return candidate;
+        }
+
+        return null;
     }
 
     private string GenerateMarkdown(Conversation conversation)
@@ -177,12 +208,15 @@ public class StorageService : IStorageService
         sb.AppendLine();
 
         // Messages
+        var conversationDirectory = Path.GetDirectoryName(conversation.FilePath)
+                                    ?? GetConversationDirectory(conversation.Id);
+
         for (int i = 0; i < conversation.Messages.Count; i++)
         {
             var message = conversation.Messages[i];
 
             sb.AppendLine(MessageHeader.Format(i + 1, message));
-            sb.AppendLine(message.Content);
+            sb.AppendLine(ConversationPaths.ReduceForStorage(message.Content, conversationDirectory));
             sb.AppendLine();
         }
 
@@ -266,6 +300,7 @@ public class StorageService : IStorageService
         }
 
         // Parse messages from markdown body
+        var conversationDirectory = Path.GetDirectoryName(filePath)!;
         var messageBlocks = body.Split(new[] { "## Message " }, StringSplitOptions.RemoveEmptyEntries);
 
         for (int i = 0; i < messageBlocks.Length; i++)
@@ -288,7 +323,7 @@ public class StorageService : IStorageService
             conversation.Messages.Add(new Message
             {
                 Role = role,
-                Content = messageContent,
+                Content = ConversationPaths.ResolveForDisplay(messageContent, conversationDirectory),
                 Timestamp = timestamp,
                 Index = i,
                 Provider = facts.Provider,

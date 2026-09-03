@@ -25,6 +25,14 @@
                     <StackPanel Margin="20">
                         <TextBlock Text="LLM Provider API Keys" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,15"/>
 
+                        <!-- Ollama needs no key, but it does need an address:
+                             it is often served by another machine on the network. -->
+                        <TextBlock Text="Ollama" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <TextBlock Text="Server URL:" Margin="0,5,0,2"/>
+                        <TextBox Text="{Binding OllamaBaseUrl, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,4"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="0,0,0,20"
+                                   Text="http://localhost:11434 for this machine, or http://&lt;host&gt;:11434 for one on the network. The serving machine must run with OLLAMA_HOST=0.0.0.0 to accept connections from anywhere but itself. Takes effect after a restart."/>
+
                         <!-- FreeToken -->
                         <TextBlock Text="FreeToken" FontWeight="SemiBold" Margin="0,0,0,5"/>
                         <TextBlock Text="API Key:" Margin="0,5,0,2"/>

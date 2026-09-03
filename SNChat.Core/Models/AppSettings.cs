@@ -11,6 +11,14 @@ public class AppSettings
 
 public class ProviderSettings
 {
+    /// <summary>
+    /// Where Ollama is listening. Points at this machine by default, but an
+    /// instance shared over a network is addressed here - the serving machine
+    /// must be started with OLLAMA_HOST=0.0.0.0 to accept anything other than
+    /// its own loopback.
+    /// </summary>
+    public string OllamaBaseUrl { get; set; } = "http://localhost:11434";
+
     public string FreeTokenApiKey { get; set; } = string.Empty;
     public string FreeTokenBaseUrl { get; set; } = "https://api.freetoken.ai/v1";
     public string OpenRouterApiKey { get; set; } = string.Empty;

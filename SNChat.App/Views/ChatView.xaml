@@ -96,7 +96,8 @@
                                            FontFamily="Segoe UI"
                                            Foreground="#333333"
                                            Background="Transparent"
-                                           behaviors:CodeBlockCopyBehavior.Enabled="True"/>
+                                           behaviors:CodeBlockCopyBehavior.Enabled="True"
+                                           behaviors:ImageContextMenuBehavior.Enabled="True"/>
 
                     <!-- Display attached images -->
                     <ItemsControl ItemsSource="{Binding Attachments}" Margin="0,8,0,0">
