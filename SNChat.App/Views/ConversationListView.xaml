@@ -4,6 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:local="clr-namespace:SNChat.App.Views"
+             xmlns:behaviors="clr-namespace:SNChat.App.Behaviors"
              xmlns:viewmodels="clr-namespace:SNChat.App.ViewModels"
              mc:Ignorable="d"
              d:DesignHeight="600" d:DesignWidth="300"
@@ -19,6 +20,11 @@
                 <Trigger Property="IsMouseOver" Value="True">
                     <Setter Property="Background" Value="#F0F0F0"/>
                 </Trigger>
+                <!-- After the hover trigger so a picked row stays visibly picked
+                     while the pointer is over it. -->
+                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                    <Setter Property="Background" Value="#D6E4F7"/>
+                </DataTrigger>
             </Style.Triggers>
         </Style>
 
@@ -28,6 +34,110 @@
             <Setter Property="Foreground" Value="#666666"/>
             <Setter Property="Margin" Value="12,12,12,6"/>
         </Style>
+
+        <!-- One conversation row. Shared by the groups and by the date sections
+             so the two lists cannot drift apart. -->
+        <DataTemplate x:Key="ConversationItemTemplate">
+            <!-- Tag carries the view model across to the context menu, which
+                 sits in its own popup tree and so cannot walk up to the UserControl. -->
+            <Border Style="{StaticResource ConversationItemStyle}"
+                    behaviors:ConversationDragDropBehavior.IsConversation="True"
+                    Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}">
+                <Border.ContextMenu>
+                    <ContextMenu DataContext="{Binding PlacementTarget.Tag,
+                                         RelativeSource={RelativeSource Self}}">
+                        <MenuItem Header="Rename..."
+                                 Command="{Binding RenameConversationCommand}"
+                                 CommandParameter="{Binding PlacementTarget.DataContext,
+                                         RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                        <MenuItem Header="Remove from group"
+                                 Command="{Binding RemoveFromGroupCommand}"
+                                 CommandParameter="{Binding PlacementTarget.DataContext,
+                                         RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                        <Separator/>
+                        <MenuItem Header="Delete"
+                                 Command="{Binding DeleteConversationCommand}"
+                                 CommandParameter="{Binding PlacementTarget.DataContext,
+                                         RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                    </ContextMenu>
+                </Border.ContextMenu>
+
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Title -->
+                    <TextBlock Grid.Row="0" Grid.Column="0"
+                              Text="{Binding Title}"
+                              FontSize="13"
+                              FontWeight="SemiBold"
+                              TextTrimming="CharacterEllipsis"
+                              Margin="0,0,8,4"/>
+
+                    <!-- Delete Button -->
+                    <Button Grid.Row="0" Grid.Column="1"
+                           Content="×"
+                           FontSize="16"
+                           Width="20"
+                           Height="20"
+                           Padding="0"
+                           Background="Transparent"
+                           BorderThickness="0"
+                           Foreground="#999999"
+                           Cursor="Hand"
+                           Command="{Binding DataContext.DeleteConversationCommand,
+                                   RelativeSource={RelativeSource AncestorType=UserControl}}"
+                           CommandParameter="{Binding}">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Border}}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+
+                    <!-- Match snippet, shown only while searching -->
+                    <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                            Background="#FFF9E6"
+                            Padding="6,4"
+                            CornerRadius="3"
+                            Margin="0,0,0,4"
+                            Visibility="{Binding HasMatchSnippet, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <TextBlock Text="{Binding MatchSnippet}"
+                                  FontSize="11"
+                                  Foreground="#5A4A00"
+                                  TextWrapping="Wrap"
+                                  MaxHeight="48"
+                                  TextTrimming="CharacterEllipsis"/>
+                    </Border>
+
+                    <!-- Summary -->
+                    <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
+                              Text="{Binding Summary}"
+                              FontSize="11"
+                              Foreground="#666666"
+                              Margin="0,0,0,2"/>
+
+                    <!-- Updated Time -->
+                    <TextBlock Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2"
+                              Text="{Binding UpdatedAtDisplay}"
+                              FontSize="10"
+                              Foreground="#999999"/>
+                </Grid>
+            </Border>
+        </DataTemplate>
     </UserControl.Resources>
 
     <Grid>
@@ -59,6 +169,12 @@
                             Padding="8,4"
                             HorizontalAlignment="Stretch"/>
                 </Grid>
+                <Button Content="+ New Group"
+                        Command="{Binding NewGroupCommand}"
+                        Padding="8,4"
+                        Margin="0,6,0,0"
+                        HorizontalAlignment="Stretch"
+                        ToolTip="Make a group, then drag conversations onto it"/>
             </StackPanel>
         </Border>
 
@@ -96,124 +212,171 @@
 
         <!-- Conversation List -->
         <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Background="White">
-            <ItemsControl ItemsSource="{Binding GroupedConversations}">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <StackPanel Margin="0,0,0,8">
-                            <!-- Group Header -->
-                            <TextBlock Text="{Binding Name}" Style="{StaticResource GroupHeaderStyle}"/>
+            <StackPanel>
 
-                            <!-- Conversations in Group -->
-                            <ItemsControl ItemsSource="{Binding Conversations}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <!-- Tag carries the view model across to the context menu, which
-                                             sits in its own popup tree and so cannot walk up to the UserControl. -->
-                                        <Border Style="{StaticResource ConversationItemStyle}"
-                                                Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}">
-                                            <Border.InputBindings>
-                                                <MouseBinding MouseAction="LeftClick"
-                                                            Command="{Binding DataContext.SelectConversationCommand,
-                                                                    RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                            CommandParameter="{Binding}"/>
-                                            </Border.InputBindings>
-                                            <Border.ContextMenu>
-                                                <ContextMenu DataContext="{Binding PlacementTarget.Tag,
-                                                                     RelativeSource={RelativeSource Self}}">
-                                                    <MenuItem Header="Rename..."
-                                                             Command="{Binding RenameConversationCommand}"
-                                                             CommandParameter="{Binding PlacementTarget.DataContext,
-                                                                     RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
-                                                    <Separator/>
-                                                    <MenuItem Header="Delete"
-                                                             Command="{Binding DeleteConversationCommand}"
-                                                             CommandParameter="{Binding PlacementTarget.DataContext,
-                                                                     RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
-                                                </ContextMenu>
-                                            </Border.ContextMenu>
+                <!-- Groups. Hidden while searching, which looks across all of them. -->
+                <ItemsControl ItemsSource="{Binding Groups}"
+                              Visibility="{Binding ShowGroups, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel>
+                                <!-- Group header: click to fold, and a drop target
+                                     whether folded or not. -->
+                                <Border behaviors:ConversationDragDropBehavior.IsGroupTarget="True"
+                                        Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        Padding="8,6"
+                                        Margin="4,2"
+                                        CornerRadius="4"
+                                        Cursor="Hand">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="Background" Value="#F4F4F4"/>
+                                            <Style.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter Property="Background" Value="#ECECEC"/>
+                                                </Trigger>
+                                                <DataTrigger Binding="{Binding IsDropTarget}" Value="True">
+                                                    <Setter Property="Background" Value="#CDE7CD"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
 
-                                            <Grid>
-                                                <Grid.RowDefinitions>
-                                                    <RowDefinition Height="Auto"/>
-                                                    <RowDefinition Height="Auto"/>
-                                                    <RowDefinition Height="Auto"/>
-                                                    <RowDefinition Height="Auto"/>
-                                                </Grid.RowDefinitions>
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*"/>
-                                                    <ColumnDefinition Width="Auto"/>
-                                                </Grid.ColumnDefinitions>
+                                    <Border.InputBindings>
+                                        <MouseBinding MouseAction="LeftClick"
+                                                    Command="{Binding DataContext.ToggleGroupCommand,
+                                                            RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}"/>
+                                    </Border.InputBindings>
 
-                                                <!-- Title -->
-                                                <TextBlock Grid.Row="0" Grid.Column="0"
-                                                          Text="{Binding Title}"
-                                                          FontSize="13"
-                                                          FontWeight="SemiBold"
-                                                          TextTrimming="CharacterEllipsis"
-                                                          Margin="0,0,8,4"/>
+                                    <Border.ContextMenu>
+                                        <ContextMenu DataContext="{Binding PlacementTarget.Tag,
+                                                             RelativeSource={RelativeSource Self}}">
+                                            <MenuItem Header="Rename group..."
+                                                     Command="{Binding RenameGroupCommand}"
+                                                     CommandParameter="{Binding PlacementTarget.DataContext,
+                                                             RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                            <Separator/>
+                                            <MenuItem Header="Delete group"
+                                                     Command="{Binding DeleteGroupCommand}"
+                                                     CommandParameter="{Binding PlacementTarget.DataContext,
+                                                             RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                        </ContextMenu>
+                                    </Border.ContextMenu>
 
-                                                <!-- Delete Button -->
-                                                <Button Grid.Row="0" Grid.Column="1"
-                                                       Content="×"
-                                                       FontSize="16"
-                                                       Width="20"
-                                                       Height="20"
-                                                       Padding="0"
-                                                       Background="Transparent"
-                                                       BorderThickness="0"
-                                                       Foreground="#999999"
-                                                       Cursor="Hand"
-                                                       Command="{Binding DataContext.DeleteConversationCommand,
-                                                               RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                       CommandParameter="{Binding}">
-                                                    <Button.Style>
-                                                        <Style TargetType="Button">
-                                                            <Setter Property="Visibility" Value="Collapsed"/>
-                                                            <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Border}}" Value="True">
-                                                                    <Setter Property="Visibility" Value="Visible"/>
-                                                                </DataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </Button.Style>
-                                                </Button>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
 
-                                                <!-- Match snippet, shown only while searching -->
-                                                <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
-                                                        Background="#FFF9E6"
-                                                        Padding="6,4"
-                                                        CornerRadius="3"
-                                                        Margin="0,0,0,4"
-                                                        Visibility="{Binding HasMatchSnippet, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                                    <TextBlock Text="{Binding MatchSnippet}"
-                                                              FontSize="11"
-                                                              Foreground="#5A4A00"
-                                                              TextWrapping="Wrap"
-                                                              MaxHeight="48"
-                                                              TextTrimming="CharacterEllipsis"/>
-                                                </Border>
+                                        <TextBlock Grid.Column="0"
+                                                  FontSize="10"
+                                                  Foreground="#666666"
+                                                  VerticalAlignment="Center"
+                                                  Margin="0,0,6,0">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Text" Value="&#x25B6;"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsExpanded}" Value="True">
+                                                            <Setter Property="Text" Value="&#x25BC;"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
 
-                                                <!-- Summary -->
-                                                <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
-                                                          Text="{Binding Summary}"
-                                                          FontSize="11"
-                                                          Foreground="#666666"
-                                                          Margin="0,0,0,2"/>
+                                        <TextBlock Grid.Column="1"
+                                                  Text="{Binding Name}"
+                                                  FontSize="13"
+                                                  FontWeight="SemiBold"
+                                                  Foreground="#333333"
+                                                  TextTrimming="CharacterEllipsis"
+                                                  VerticalAlignment="Center"/>
 
-                                                <!-- Updated Time -->
-                                                <TextBlock Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2"
-                                                          Text="{Binding UpdatedAtDisplay}"
-                                                          FontSize="10"
-                                                          Foreground="#999999"/>
-                                            </Grid>
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </StackPanel>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
+                                        <TextBlock Grid.Column="2"
+                                                  Text="{Binding CountDisplay}"
+                                                  FontSize="11"
+                                                  Foreground="#888888"
+                                                  VerticalAlignment="Center"
+                                                  Margin="6,0,0,0"/>
+                                    </Grid>
+                                </Border>
+
+                                <!-- Members -->
+                                <ItemsControl ItemsSource="{Binding Conversations}"
+                                              ItemTemplate="{StaticResource ConversationItemTemplate}"
+                                              Margin="10,0,0,0"
+                                              Visibility="{Binding IsExpanded, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+
+                                <TextBlock Text="Drag conversations here"
+                                           FontSize="10"
+                                           FontStyle="Italic"
+                                           Foreground="#AAAAAA"
+                                           Margin="26,0,0,4">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <MultiDataTrigger>
+                                                    <MultiDataTrigger.Conditions>
+                                                        <Condition Binding="{Binding IsEmpty}" Value="True"/>
+                                                        <Condition Binding="{Binding IsExpanded}" Value="True"/>
+                                                    </MultiDataTrigger.Conditions>
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </MultiDataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- Ungrouped heading, and the way back out of a group -->
+                <Border behaviors:ConversationDragDropBehavior.IsUngroupedTarget="True"
+                        Margin="4,8,4,0"
+                        Padding="8,4"
+                        CornerRadius="4">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="Visibility" Value="Visible"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding ShowGroups}" Value="False">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Groups.Count}" Value="0">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsUngroupedDropTarget}" Value="True">
+                                    <Setter Property="Background" Value="#CDE7CD"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <TextBlock Text="Ungrouped"
+                               FontSize="11"
+                               FontWeight="SemiBold"
+                               Foreground="#999999"/>
+                </Border>
+
+                <!-- Date sections, holding whatever is in no group -->
+                <ItemsControl ItemsSource="{Binding GroupedConversations}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Margin="0,0,0,8">
+                                <TextBlock Text="{Binding Name}" Style="{StaticResource GroupHeaderStyle}"/>
+                                <ItemsControl ItemsSource="{Binding Conversations}"
+                                              ItemTemplate="{StaticResource ConversationItemTemplate}"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
         </ScrollViewer>
 
         <!-- Loading Indicator -->

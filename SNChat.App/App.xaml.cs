@@ -98,6 +98,7 @@ public partial class App : Application
 
         // Register core services
         services.AddSingleton<IStorageService, StorageService>();
+        services.AddSingleton<IGroupService, GroupService>();
         services.AddSingleton<SettingsService>();
         services.AddSingleton<TemplateService>();
         services.AddSingleton<IImageResizer, Services.WpfImageResizer>();
