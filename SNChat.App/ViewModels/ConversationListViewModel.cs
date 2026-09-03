@@ -160,6 +160,60 @@ public partial class ConversationListViewModel : ObservableObject
         }
     }
 
+    [RelayCommand]
+    private async Task RenameConversationAsync(ConversationInfo? info)
+    {
+        if (info == null)
+            return;
+
+        var dialog = new Views.RenameConversationDialog(info.Title)
+        {
+            Owner = Application.Current.MainWindow
+        };
+
+        if (dialog.ShowDialog() == true && dialog.NewTitle != null)
+        {
+            var newTitle = dialog.NewTitle;
+
+            if (newTitle == info.Title)
+                return;
+
+            try
+            {
+                // Load the conversation, update the title, and save it back
+                var conversation = await _storageService.LoadConversationAsync(info.Id);
+                if (conversation != null)
+                {
+                    conversation.Title = newTitle;
+                    conversation.UpdatedAt = DateTime.UtcNow;
+                    await _storageService.SaveConversationAsync(conversation);
+
+                    // Update the local info
+                    info.Title = newTitle;
+                    info.UpdatedAt = conversation.UpdatedAt;
+
+                    // Re-group to update the display
+                    if (string.IsNullOrWhiteSpace(SearchText))
+                    {
+                        GroupConversations();
+                    }
+                    else
+                    {
+                        FilterConversations();
+                    }
+
+                    _logger.LogInformation("Renamed conversation to: {Title}", newTitle);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to rename conversation {Id}", info.Id);
+                MessageBox.Show($"Failed to rename conversation: {ex.Message}", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+    }
+
     partial void OnSearchTextChanged(string value)
     {
         FilterConversations();
@@ -287,12 +341,19 @@ public partial class ConversationListViewModel : ObservableObject
     }
 }
 
-public class ConversationInfo : ObservableObject
+public partial class ConversationInfo : ObservableObject
 {
     private string _matchSnippet = string.Empty;
+    private string _title = string.Empty;
 
     public Guid Id { get; set; }
-    public string Title { get; set; } = string.Empty;
+
+    public string Title
+    {
+        get => _title;
+        set => SetProperty(ref _title, value);
+    }
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public int MessageCount { get; set; }
