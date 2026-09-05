@@ -83,6 +83,20 @@
                                 <Setter Property="Margin" Value="10,5,10,5"/>
                                 <Setter Property="HorizontalAlignment" Value="Stretch"/>
                             </DataTrigger>
+
+                            <!-- A compaction summary spans the width, since it
+                                 stands for both sides of the exchange above it. -->
+                            <DataTrigger Binding="{Binding IsCompactionSummary}" Value="True">
+                                <Setter Property="Background" Value="#EDE7F6"/>
+                                <Setter Property="Margin" Value="10,5,10,5"/>
+                                <Setter Property="HorizontalAlignment" Value="Stretch"/>
+                            </DataTrigger>
+
+                            <!-- Folded away: still readable, but faded to show
+                                 it is no longer part of what the model is sent. -->
+                            <DataTrigger Binding="{Binding IsCompacted}" Value="True">
+                                <Setter Property="Opacity" Value="0.45"/>
+                            </DataTrigger>
                         </Style.Triggers>
                         <Setter Property="Padding" Value="12"/>
                         <Setter Property="CornerRadius" Value="8"/>
@@ -90,7 +104,7 @@
                 </Border.Style>
 
                 <StackPanel>
-                    <TextBlock Text="{Binding Role}" FontSize="11" FontWeight="SemiBold" Opacity="0.7" Margin="0,0,0,4"/>
+                    <TextBlock Text="{Binding RoleLabel}" FontSize="11" FontWeight="SemiBold" Opacity="0.7" Margin="0,0,0,4"/>
                     <markdig:MarkdownViewer Markdown="{Binding Content}"
                                            FontSize="14"
                                            FontFamily="Segoe UI"
@@ -465,6 +479,61 @@
                                   Margin="10,0,0,0"
                                   ToolTip="Enable tools like web search for the model"
                                   IsEnabled="{Binding IsStreaming, Converter={StaticResource InverseBooleanConverter}}"/>
+
+                        <!-- How full the model's context window is. Unlike the
+                             cost beside it this is not cumulative: the history
+                             is resent whole each turn, so this is what the next
+                             request will occupy, and compacting brings it down. -->
+                        <StackPanel Orientation="Horizontal"
+                                    VerticalAlignment="Center"
+                                    Margin="12,0,0,0"
+                                    Visibility="{Binding HasContextUsage,
+                                                 Converter={StaticResource BooleanToVisibilityConverter}}"
+                                    ToolTip="How much of the model's context window the next message will use, including the whole history. At the threshold set in Settings - Context, the oldest messages are folded into a summary.">
+                            <TextBlock Text="Context"
+                                       FontSize="10"
+                                       Foreground="#999999"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,5,0"/>
+
+                            <ProgressBar Width="70"
+                                         Height="7"
+                                         Minimum="0"
+                                         Maximum="100"
+                                         Background="#E4E4E4"
+                                         BorderThickness="0"
+                                         VerticalAlignment="Center"
+                                         Value="{Binding ContextPercent, Mode=OneWay}">
+                                <ProgressBar.Style>
+                                    <Style TargetType="ProgressBar">
+                                        <Setter Property="Foreground" Value="#4CAF50"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding ContextLevel}" Value="Warning">
+                                                <Setter Property="Foreground" Value="#FB8C00"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding ContextLevel}" Value="Critical">
+                                                <Setter Property="Foreground" Value="#E53935"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </ProgressBar.Style>
+                            </ProgressBar>
+
+                            <TextBlock Text="{Binding ContextSummary}"
+                                       FontSize="10"
+                                       Foreground="#999999"
+                                       VerticalAlignment="Center"
+                                       Margin="5,0,0,0"/>
+
+                            <Button Content="Compact"
+                                    Command="{Binding CompactContextCommand}"
+                                    IsEnabled="{Binding CanCompact}"
+                                    FontSize="10"
+                                    Padding="6,1"
+                                    Margin="6,0,0,0"
+                                    Cursor="Hand"
+                                    ToolTip="Summarize the older messages now, instead of waiting for the threshold. They stay on screen, greyed out, but are no longer sent."/>
+                        </StackPanel>
 
                         <!-- Running cost of this conversation, across every
                              session it has been open in. -->

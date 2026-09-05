@@ -50,6 +50,10 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private string _ollamaBaseUrl = "http://localhost:11434";
 
+    /// <summary>num_ctx for Ollama requests; 0 leaves the sizing to Ollama.</summary>
+    [ObservableProperty]
+    private int _ollamaContextWindow;
+
     [ObservableProperty]
     private string _freeTokenApiKey = string.Empty;
 
@@ -116,6 +120,20 @@ public partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty]
     private string _defaultModel = string.Empty;
+
+    // Context window: when to fold the older messages into a summary so the
+    // history keeps fitting.
+    [ObservableProperty]
+    private bool _autoCompact = true;
+
+    [ObservableProperty]
+    private int _compactThresholdPercent = 80;
+
+    [ObservableProperty]
+    private int _keepRecentMessages = 6;
+
+    [ObservableProperty]
+    private int _fallbackWindowTokens = 8192;
 
     // UI Preferences
     [ObservableProperty]
@@ -257,6 +275,7 @@ public partial class SettingsViewModel : ObservableObject
 
             // Provider Settings
             OllamaBaseUrl = settings.Providers.OllamaBaseUrl;
+            OllamaContextWindow = settings.Providers.OllamaContextWindow;
             FreeTokenApiKey = settings.Providers.FreeTokenApiKey;
             FreeTokenBaseUrl = settings.Providers.FreeTokenBaseUrl;
             OpenRouterApiKey = settings.Providers.OpenRouterApiKey;
@@ -282,6 +301,11 @@ public partial class SettingsViewModel : ObservableObject
             DefaultTopP = settings.Defaults.TopP;
             DefaultProvider = settings.Defaults.DefaultProvider;
             DefaultModel = settings.Defaults.DefaultModel;
+
+            AutoCompact = settings.Context.AutoCompact;
+            CompactThresholdPercent = settings.Context.CompactThresholdPercent;
+            KeepRecentMessages = settings.Context.KeepRecentMessages;
+            FallbackWindowTokens = settings.Context.FallbackWindowTokens;
 
             // UI Preferences
             Theme = settings.UI.Theme;
@@ -318,6 +342,10 @@ public partial class SettingsViewModel : ObservableObject
             var settings = _settingsService.GetCachedSettings();
 
             settings.Providers.OllamaBaseUrl = OllamaBaseUrl;
+
+            // Negatives are meaningless to Ollama and would be sent verbatim;
+            // 0 is the "you decide" case and stays as it is.
+            settings.Providers.OllamaContextWindow = Math.Max(0, OllamaContextWindow);
             settings.Providers.FreeTokenApiKey = FreeTokenApiKey;
             settings.Providers.FreeTokenBaseUrl = FreeTokenBaseUrl;
             settings.Providers.OpenRouterApiKey = OpenRouterApiKey;
@@ -352,6 +380,14 @@ public partial class SettingsViewModel : ObservableObject
             settings.Defaults.TopP = DefaultTopP;
             settings.Defaults.DefaultProvider = DefaultProvider;
             settings.Defaults.DefaultModel = DefaultModel;
+
+            // Clamped rather than trusted: these come from a text box, and a
+            // threshold of 0 would compact after every single message while a
+            // window of 0 would leave the meter with nothing to measure against.
+            settings.Context.AutoCompact = AutoCompact;
+            settings.Context.CompactThresholdPercent = Math.Clamp(CompactThresholdPercent, 10, 100);
+            settings.Context.KeepRecentMessages = Math.Max(0, KeepRecentMessages);
+            settings.Context.FallbackWindowTokens = Math.Max(1024, FallbackWindowTokens);
 
             settings.UI.Theme = Theme;
             settings.UI.FontSize = FontSize;
@@ -401,6 +437,7 @@ public partial class SettingsViewModel : ObservableObject
     }
 
     partial void OnOllamaBaseUrlChanged(string value) => HasUnsavedChanges = true;
+    partial void OnOllamaContextWindowChanged(int value) => HasUnsavedChanges = true;
     partial void OnFreeTokenApiKeyChanged(string value) => HasUnsavedChanges = true;
     partial void OnFreeTokenBaseUrlChanged(string value) => HasUnsavedChanges = true;
     partial void OnOpenRouterApiKeyChanged(string value) => HasUnsavedChanges = true;
@@ -421,6 +458,10 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnDefaultTopPChanged(double value) => HasUnsavedChanges = true;
     partial void OnDefaultProviderChanged(string value) => HasUnsavedChanges = true;
     partial void OnDefaultModelChanged(string value) => HasUnsavedChanges = true;
+    partial void OnAutoCompactChanged(bool value) => HasUnsavedChanges = true;
+    partial void OnCompactThresholdPercentChanged(int value) => HasUnsavedChanges = true;
+    partial void OnKeepRecentMessagesChanged(int value) => HasUnsavedChanges = true;
+    partial void OnFallbackWindowTokensChanged(int value) => HasUnsavedChanges = true;
     partial void OnThemeChanged(string value) => HasUnsavedChanges = true;
     partial void OnFontSizeChanged(int value) => HasUnsavedChanges = true;
     partial void OnShowTimestampsChanged(bool value) => HasUnsavedChanges = true;

@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Threading;
@@ -11,6 +11,7 @@ using SNChat.Core.Services;
 using SNChat.Core.Tools;
 using SNChat.LLM.Interfaces;
 using SNChat.LLM.Models;
+using SNChat.LLM.Services;
 
 namespace SNChat.App.ViewModels;
 
@@ -22,9 +23,36 @@ public partial class ChatViewModel : ObservableObject
     private readonly AttachmentService _attachmentService;
     private readonly SettingsService _settingsService;
     private readonly WebImageCacheService _webImageCache;
+    private readonly ConversationCompactor _compactor;
     private readonly ILogger<ChatViewModel> _logger;
     private CancellationTokenSource? _cancellationTokenSource;
     private ILLMProvider _currentProvider;
+
+    /// <summary>
+    /// Context window per model id, as the provider reported it. Kept because
+    /// AvailableModels holds only ids, and the meter needs the capacity of
+    /// whichever one is selected.
+    /// </summary>
+    private readonly Dictionary<string, long> _modelContextWindows = new();
+
+    // The provider counts the prompt for real on every turn, which beats any
+    // estimate this side of the wire. These hold the most recent such count and
+    // how many messages it covered, so only what came after has to be guessed.
+    private int? _measuredPromptTokens;
+    private int _measuredThrough;
+
+    /// <summary>
+    /// How many messages the in-flight request carried, held until the count for
+    /// it comes back with the reply.
+    /// </summary>
+    private int _requestedMessageCount;
+
+    /// <summary>
+    /// What the tool definitions cost, worked out once. Serializing nineteen
+    /// MCP schemas is far too much to redo on every keystroke, and the registry
+    /// is fixed once the servers have connected at startup.
+    /// </summary>
+    private int? _toolTokens;
 
     /// <summary>
     /// False while the constructor is restoring the previous session, so that
@@ -100,6 +128,118 @@ public partial class ChatViewModel : ObservableObject
     }
 
     /// <summary>
+    /// How full the context window is, 0-100, for the meter in the input bar.
+    /// Unlike the token summary beside it this is not a running total: the
+    /// history is resent whole on every turn, so this is what the *next* request
+    /// will occupy, and compacting sends it back down.
+    /// </summary>
+    [ObservableProperty]
+    private int _contextPercent;
+
+    /// <summary>Reads as "62% · 5.1k/8k".</summary>
+    [ObservableProperty]
+    private string _contextSummary = string.Empty;
+
+    /// <summary>
+    /// "Normal", "Warning" or "Critical", which the view colours the bar by.
+    /// A string rather than a brush so the palette stays in the XAML with the
+    /// rest of the styling.
+    /// </summary>
+    [ObservableProperty]
+    private string _contextLevel = "Normal";
+
+    /// <summary>False when the model's capacity is unknown, leaving nothing to measure against.</summary>
+    [ObservableProperty]
+    private bool _hasContextUsage;
+
+    [ObservableProperty]
+    private bool _isCompacting;
+
+    public bool CanCompact => !IsStreaming && !IsCompacting && CurrentConversation != null;
+
+    partial void OnIsCompactingChanged(bool value) => OnPropertyChanged(nameof(CanCompact));
+
+    partial void OnCurrentConversationChanged(Conversation? value) =>
+        OnPropertyChanged(nameof(CanCompact));
+
+    /// <summary>
+    /// The capacity of the selected model, or the configured fallback where the
+    /// provider does not report one - Ollama's model list carries no context
+    /// length, so most local models land here.
+    /// </summary>
+    private int ContextWindowTokens
+    {
+        get
+        {
+            if (_modelContextWindows.TryGetValue(CurrentModel, out var reported) && reported > 0)
+                return (int)Math.Min(reported, int.MaxValue);
+
+            return _settingsService.GetCachedSettings().Context.FallbackWindowTokens;
+        }
+    }
+
+    /// <summary>
+    /// Recomputes the meter. Called whenever anything that goes into the next
+    /// prompt changes - a message, the model, or the text being typed.
+    /// </summary>
+    private void UpdateContextUsage()
+    {
+        var window = ContextWindowTokens;
+        var live = ContextMeter.LiveMessages(CurrentConversation?.Messages ?? new List<Message>());
+
+        var usage = ContextMeter.Measure(
+            live, BuildSystemPrompt(), window, _measuredPromptTokens, _measuredThrough,
+            toolTokens: WebSearchEnabled ? ToolTokens : 0);
+
+        // What is in the input box has not been sent, but it is about to be, so
+        // pasting a large file shows up on the meter before it costs anything.
+        usage = usage with { UsedTokens = usage.UsedTokens + TokenEstimator.Estimate(CurrentInput) };
+
+        HasContextUsage = usage.IsKnown;
+        ContextPercent = usage.Percent;
+
+        var threshold = _settingsService.GetCachedSettings().Context.CompactThresholdPercent;
+
+        ContextLevel = usage.HasReached(threshold) ? "Critical"
+            : usage.HasReached(threshold - 10) ? "Warning"
+            : "Normal";
+
+        ContextSummary = usage.IsKnown
+            ? $"{usage.Percent}% · {Abbreviate(usage.UsedTokens)}/{Abbreviate(window)}"
+            : string.Empty;
+    }
+
+    private int ToolTokens => _toolTokens ??= TokenEstimator.EstimateTools(_toolRegistry.GetTools());
+
+    /// <summary>
+    /// Turning tools off takes their definitions out of the prompt, which on a
+    /// large MCP setup is most of it.
+    /// </summary>
+    partial void OnWebSearchEnabledChanged(bool value) => UpdateContextUsage();
+
+    /// <summary>"512", "5.1k", "128k" - short enough to sit in the input bar.</summary>
+    private static string Abbreviate(int tokens) => tokens switch
+    {
+        < 1000 => tokens.ToString(),
+        < 10000 => $"{tokens / 1000.0:0.#}k",
+        _ => $"{tokens / 1000}k"
+    };
+
+    partial void OnCurrentInputChanged(string value) => UpdateContextUsage();
+
+    /// <summary>
+    /// Throws away the provider's last prompt count and re-reads the meter from
+    /// an estimate. Needed whenever the history stops being what that count
+    /// described - a different conversation, or one just compacted.
+    /// </summary>
+    private void ResetContextMeasurement()
+    {
+        _measuredPromptTokens = null;
+        _measuredThrough = 0;
+        UpdateContextUsage();
+    }
+
+    /// <summary>
     /// Sent ahead of the conversation on every request. Set when a template
     /// carries one; empty otherwise.
     /// </summary>
@@ -164,6 +304,7 @@ public partial class ChatViewModel : ObservableObject
         AttachmentService attachmentService,
         SettingsService settingsService,
         WebImageCacheService webImageCache,
+        ConversationCompactor compactor,
         ILogger<ChatViewModel> logger)
     {
         _providerFactory = providerFactory;
@@ -172,6 +313,7 @@ public partial class ChatViewModel : ObservableObject
         _attachmentService = attachmentService;
         _settingsService = settingsService;
         _webImageCache = webImageCache;
+        _compactor = compactor;
         _logger = logger;
 
         // Load available providers
@@ -284,6 +426,8 @@ public partial class ChatViewModel : ObservableObject
     /// </summary>
     partial void OnIsStreamingChanged(bool value)
     {
+        OnPropertyChanged(nameof(CanCompact));
+
         if (value)
         {
             _generationStartedAt = DateTime.UtcNow;
@@ -311,7 +455,14 @@ public partial class ChatViewModel : ObservableObject
     private static string FormatElapsed(TimeSpan elapsed) =>
         $"{(int)elapsed.TotalSeconds}s";
 
-    partial void OnCurrentModelChanged(string value) => PersistSelection();
+    partial void OnCurrentModelChanged(string value)
+    {
+        PersistSelection();
+
+        // A different model is a different window, so the same conversation can
+        // go from comfortable to nearly full without a word being added.
+        UpdateContextUsage();
+    }
 
     partial void OnCurrentProviderNameChanged(string value)
     {
@@ -339,6 +490,7 @@ public partial class ChatViewModel : ObservableObject
             foreach (var model in models)
             {
                 AvailableModels.Add(model.Id);
+                _modelContextWindows[model.Id] = model.ContextWindow;
             }
 
             if (AvailableModels.Count > 0 && !AvailableModels.Contains(CurrentModel))
@@ -346,7 +498,15 @@ public partial class ChatViewModel : ObservableObject
                 CurrentModel = AvailableModels[0];
             }
 
-            _logger.LogInformation("Loaded {Count} models from {Provider}", AvailableModels.Count, CurrentProviderName);
+            // The window for the selected model is only known now, so the meter
+            // has been measuring against the fallback until this point.
+            UpdateContextUsage();
+
+            // The window is logged because getting it wrong is invisible in the
+            // UI until the meter misbehaves: every model reading 4096 was what a
+            // hardcoded placeholder looked like from the outside.
+            _logger.LogInformation("Loaded {Count} models from {Provider}; {Model} has a {Window}-token window",
+                AvailableModels.Count, CurrentProviderName, CurrentModel, ContextWindowTokens);
         }
         catch (Exception ex)
         {
@@ -394,6 +554,7 @@ public partial class ChatViewModel : ObservableObject
         await SaveConversationAsync();
 
         await GenerateResponseAsync(typed);
+        await AutoCompactIfNeededAsync();
     }
 
     [RelayCommand]
@@ -528,6 +689,118 @@ public partial class ChatViewModel : ObservableObject
         _logger.LogInformation("User cancelled message generation");
     }
 
+    /// <summary>
+    /// Folds the older messages into a summary, by hand. Says so when there is
+    /// nothing to fold, since a button that appears to do nothing is worse than
+    /// one that explains itself.
+    /// </summary>
+    [RelayCommand]
+    private async Task CompactContextAsync()
+    {
+        if (!await CompactAsync())
+        {
+            MessageBox.Show(
+                "There is not enough history to compact yet. The most recent messages " +
+                "are always left as they are, so a short conversation has nothing older " +
+                "to summarize.",
+                "Nothing to compact",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+    }
+
+    /// <summary>
+    /// Compacts once the window is as full as the threshold, if that was asked
+    /// for. Run after a reply rather than before a request, so the summarizing
+    /// happens while the user is reading instead of while they are waiting.
+    /// </summary>
+    private async Task AutoCompactIfNeededAsync()
+    {
+        var context = _settingsService.GetCachedSettings().Context;
+
+        if (!context.AutoCompact || !CanCompact)
+            return;
+
+        var window = ContextWindowTokens;
+        var live = ContextMeter.LiveMessages(CurrentConversation?.Messages ?? new List<Message>());
+        var usage = ContextMeter.Measure(
+            live, BuildSystemPrompt(), window, _measuredPromptTokens, _measuredThrough);
+
+        if (!usage.HasReached(context.CompactThresholdPercent))
+            return;
+
+        _logger.LogInformation(
+            "Context is at {Percent}% of {Window} tokens, past the {Threshold}% threshold; compacting",
+            usage.Percent, window, context.CompactThresholdPercent);
+
+        await CompactAsync();
+    }
+
+    /// <summary>
+    /// Summarizes the older messages and marks them compacted. Returns false
+    /// when there was nothing to fold or the summary did not come back, in both
+    /// of which cases the conversation is left exactly as it was.
+    /// </summary>
+    private async Task<bool> CompactAsync()
+    {
+        if (CurrentConversation == null || !CanCompact)
+            return false;
+
+        var keepRecent = _settingsService.GetCachedSettings().Context.KeepRecentMessages;
+        var live = ContextMeter.LiveMessages(CurrentConversation.Messages);
+        var toFold = ConversationCompactor.Foldable(live, keepRecent);
+
+        if (toFold.Count == 0)
+            return false;
+
+        IsCompacting = true;
+        StatusMessage = $"Compacting {toFold.Count} messages...";
+
+        try
+        {
+            var summary = await _compactor.SummarizeAsync(_currentProvider, CurrentModel, toFold);
+
+            if (summary == null)
+                return false;
+
+            // The summary goes where the folded messages ended, so the
+            // conversation still reads in order with them greyed out above it.
+            var firstKept = live.Count > toFold.Count ? live[toFold.Count] : null;
+            var insertAt = firstKept != null
+                ? CurrentConversation.Messages.IndexOf(firstKept)
+                : CurrentConversation.Messages.Count;
+
+            foreach (var message in toFold)
+                message.IsCompacted = true;
+
+            CurrentConversation.Messages.Insert(insertAt, summary);
+
+            // Messages is what the view binds to and is kept in step with the
+            // conversation, so the same insert has to happen in both.
+            var viewIndex = firstKept != null ? Messages.IndexOf(firstKept) : Messages.Count;
+            Messages.Insert(viewIndex < 0 ? Messages.Count : viewIndex, summary);
+
+            // Every count the provider gave described a prompt that included the
+            // messages just folded away, so none of them describes this one.
+            ResetContextMeasurement();
+
+            await SaveConversationAsync();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Compaction failed");
+            MessageBox.Show($"Could not compact the conversation: {ex.Message}",
+                "Compaction failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return false;
+        }
+        finally
+        {
+            IsCompacting = false;
+            StatusMessage = string.Empty;
+        }
+    }
+
     private void StartNewConversation()
     {
         CurrentConversation = new Conversation
@@ -545,6 +818,7 @@ public partial class ChatViewModel : ObservableObject
         Messages.Clear();
         StreamingContent = string.Empty;
         UpdateConversationTokenSummary();
+        ResetContextMeasurement();
 
         _logger.LogInformation("Started new conversation: {ConversationId} with provider {Provider}",
             CurrentConversation.Id, CurrentProviderName);
@@ -577,10 +851,15 @@ public partial class ChatViewModel : ObservableObject
         {
             var defaults = _settingsService.GetCachedSettings().Defaults;
 
+            // Anything a compaction folded away is left out; the summary
+            // standing in for it is not.
+            var toSend = ContextMeter.LiveMessages(CurrentConversation!.Messages);
+            _requestedMessageCount = toSend.Count;
+
             var request = new GenerateRequest
             {
                 Model = CurrentModel,
-                Messages = CurrentConversation!.Messages.ToList(),
+                Messages = toSend,
                 // These were hardcoded, so the temperature, token limit and top-p
                 // in Settings were written but never sent.
                 Parameters = new ModelParameters
@@ -632,6 +911,18 @@ public partial class ChatViewModel : ObservableObject
                     var prompting = Messages.LastOrDefault(m => m.Role == MessageRole.User);
                     if (prompting != null)
                         prompting.PromptTokens = chunk.Metadata.PromptEvalCount;
+
+                    // The provider has now counted this exact prompt, so the
+                    // meter can stop guessing at everything up to it. A turn
+                    // that used tools sent more than these messages - the tool
+                    // results went too - so the count can exceed what they
+                    // account for. That reads high rather than low, which is the
+                    // safe direction for a gauge of remaining room.
+                    if (chunk.Metadata.PromptEvalCount is > 0)
+                    {
+                        _measuredPromptTokens = chunk.Metadata.PromptEvalCount;
+                        _measuredThrough = _requestedMessageCount;
+                    }
 
                     if (CurrentConversation != null)
                     {
@@ -706,6 +997,10 @@ public partial class ChatViewModel : ObservableObject
             StatusMessage = string.Empty;
             _cancellationTokenSource?.Dispose();
             _cancellationTokenSource = null;
+
+            // In the finally so the meter also catches up after a cancelled or
+            // failed turn, both of which still added messages to the history.
+            UpdateContextUsage();
         }
     }
 
@@ -740,6 +1035,7 @@ public partial class ChatViewModel : ObservableObject
         }
 
         UpdateConversationTokenSummary();
+        ResetContextMeasurement();
 
         _logger.LogInformation("Loaded conversation: {Title} with {Count} messages",
             conversation.Title, conversation.Messages.Count);

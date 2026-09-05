@@ -10,6 +10,7 @@ public class Message : INotifyPropertyChanged
     private int? _completionTokens;
     private int? _reasoningTokens;
     private decimal? _cost;
+    private bool _isCompacted;
 
     public Guid Id { get; set; } = Guid.NewGuid();
     public MessageRole Role { get; set; }
@@ -98,6 +99,41 @@ public class Message : INotifyPropertyChanged
         string.IsNullOrEmpty(ModelName) ? string.Empty : $"{Provider} / {ModelName}";
 
     public bool HasModelSummary => !string.IsNullOrEmpty(ModelName);
+
+    /// <summary>
+    /// True once this message has been folded into a compaction summary, which
+    /// leaves it out of the prompt from then on.
+    ///
+    /// Kept rather than deleted so that compacting stays readable and reversible:
+    /// the original wording is still on screen and still in the saved file, and
+    /// only the copy sent to the model is shortened. Set after the message is
+    /// already displayed, so it has to notify.
+    /// </summary>
+    public bool IsCompacted
+    {
+        get => _isCompacted;
+        set
+        {
+            if (_isCompacted == value)
+                return;
+
+            _isCompacted = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(RoleLabel));
+        }
+    }
+
+    /// <summary>
+    /// True for the message a compaction produced. It stands in for everything
+    /// marked <see cref="IsCompacted"/> before it, so it is sent while they are not.
+    /// </summary>
+    public bool IsCompactionSummary { get; set; }
+
+    /// <summary>The heading on the message card, which says more than the role alone.</summary>
+    public string RoleLabel =>
+        IsCompactionSummary ? "Summary of earlier messages"
+        : IsCompacted ? $"{Role} · compacted"
+        : Role.ToString();
 
     /// <summary>
     /// Reasoning tokens included in <see cref="CompletionTokens"/>. Null means
@@ -193,7 +229,9 @@ public class Message : INotifyPropertyChanged
             ReasoningTokens = ReasoningTokens,
             Cost = Cost,
             Provider = Provider,
-            ModelName = ModelName
+            ModelName = ModelName,
+            IsCompacted = IsCompacted,
+            IsCompactionSummary = IsCompactionSummary
         };
     }
 }

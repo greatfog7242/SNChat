@@ -331,7 +331,9 @@ public class StorageService : IStorageService
                 PromptTokens = facts.PromptTokens,
                 CompletionTokens = facts.CompletionTokens,
                 ReasoningTokens = facts.ReasoningTokens,
-                Cost = facts.Cost
+                Cost = facts.Cost,
+                IsCompacted = facts.IsCompacted,
+                IsCompactionSummary = facts.IsCompactionSummary
             });
         }
 

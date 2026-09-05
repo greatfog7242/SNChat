@@ -8,6 +8,45 @@ public class AppSettings
     public UIPreferences UI { get; set; } = new();
     public StorageSettings Storage { get; set; } = new();
     public ModeSettings Modes { get; set; } = new();
+    public ContextSettings Context { get; set; } = new();
+}
+
+/// <summary>
+/// When to fold the older part of a conversation into a summary. Every turn
+/// resends the whole history, so a long conversation eventually fills the
+/// model's context window - at which point the request stops being merely
+/// expensive and starts being rejected outright. Compacting trades the exact
+/// wording of early messages for room to keep going.
+/// </summary>
+public class ContextSettings
+{
+    /// <summary>
+    /// Compact on its own once <see cref="CompactThresholdPercent"/> is reached,
+    /// rather than waiting to be asked. The meter and the Compact button stay
+    /// available either way, so turning this off means manual-only.
+    /// </summary>
+    public bool AutoCompact { get; set; } = true;
+
+    /// <summary>
+    /// How full the window has to get before compacting, as a percentage.
+    /// Deliberately short of 100: the reply has to fit as well as the prompt,
+    /// and compacting itself needs room to send what it is summarizing.
+    /// </summary>
+    public int CompactThresholdPercent { get; set; } = 80;
+
+    /// <summary>
+    /// How many of the most recent messages are left untouched. Compacting
+    /// everything would summarize away the exchange in progress, which is the
+    /// part the next answer depends on most.
+    /// </summary>
+    public int KeepRecentMessages { get; set; } = 6;
+
+    /// <summary>
+    /// Window size assumed for a model whose provider does not report one.
+    /// Ollama is the usual case: its model list carries no context length, so
+    /// without a figure here the meter would have nothing to measure against.
+    /// </summary>
+    public int FallbackWindowTokens { get; set; } = 8192;
 }
 
 /// <summary>The answering styles offered in the main window's Mode picker.</summary>
@@ -89,6 +128,25 @@ public class ProviderSettings
     /// its own loopback.
     /// </summary>
     public string OllamaBaseUrl { get; set; } = "http://localhost:11434";
+
+    /// <summary>
+    /// How much context Ollama should serve a model with, sent as num_ctx.
+    ///
+    /// Zero, the default, sends nothing and lets Ollama size it as it sees fit -
+    /// which is what it did before this existed. The catch is that nothing then
+    /// reports what it settled on: the context meter has to fall back to the
+    /// model's own trained length, which is an upper bound and can be far above
+    /// what is actually being served.
+    ///
+    /// Setting it makes both ends agree - the request asks for exactly this much
+    /// and the meter measures against exactly this much. It costs memory though:
+    /// the KV cache grows with this number, so too large a value pushes layers
+    /// off the GPU and slows generation badly, or fails to load at all.
+    ///
+    /// Capped at the model's trained length when that is known, since asking for
+    /// more than a model was built for does not give it a longer memory.
+    /// </summary>
+    public int OllamaContextWindow { get; set; }
 
     public string FreeTokenApiKey { get; set; } = string.Empty;
     public string FreeTokenBaseUrl { get; set; } = "https://api.freetoken.ai/v1";

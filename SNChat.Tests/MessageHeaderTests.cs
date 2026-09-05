@@ -145,4 +145,39 @@ public class MessageHeaderTests
     {
         Assert.False(MessageHeader.TryParse("3 - 2026-08-31 17:19:36", out _, out _, out _));
     }
+
+    [Fact]
+    public void A_compacted_message_is_still_compacted_when_it_is_read_back()
+    {
+        // Otherwise reopening a conversation would put the folded messages back
+        // into the prompt beside the summary that replaced them.
+        var message = new Message { Role = MessageRole.User, IsCompacted = true };
+
+        var header = MessageHeader.Format(1, message)["## Message ".Length..];
+
+        Assert.True(MessageHeader.TryParse(header, out _, out _, out var facts));
+        Assert.True(facts.IsCompacted);
+        Assert.False(facts.IsCompactionSummary);
+    }
+
+    [Fact]
+    public void A_compaction_summary_is_still_the_summary_when_it_is_read_back()
+    {
+        var message = new Message { Role = MessageRole.System, IsCompactionSummary = true };
+
+        var header = MessageHeader.Format(1, message)["## Message ".Length..];
+
+        Assert.True(MessageHeader.TryParse(header, out _, out _, out var facts));
+        Assert.True(facts.IsCompactionSummary);
+        Assert.False(facts.IsCompacted);
+    }
+
+    [Fact]
+    public void An_ordinary_message_writes_no_compaction_fields_at_all()
+    {
+        var header = MessageHeader.Format(1, new Message { Role = MessageRole.User });
+
+        Assert.DoesNotContain("compacted", header);
+        Assert.DoesNotContain("summary", header);
+    }
 }

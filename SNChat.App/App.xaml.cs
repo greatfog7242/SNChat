@@ -13,6 +13,7 @@ using SNChat.LLM.Interfaces;
 using SNChat.LLM.Providers.Ollama;
 using SNChat.LLM.Providers.FreeToken;
 using SNChat.LLM.Providers.OpenRouter;
+using SNChat.LLM.Services;
 using SNChat.Core.Tools;
 using SNChat.WebTools;
 using SNChat.WebTools.ImageSources;
@@ -104,6 +105,10 @@ public partial class App : Application
         services.AddSingleton<IImageResizer, Services.WpfImageResizer>();
         services.AddSingleton<AttachmentService>();
 
+        // Folds a long conversation's older messages into a summary, so the
+        // history keeps fitting in the model's context window.
+        services.AddSingleton<ConversationCompactor>();
+
         services.AddHttpClient<WebImageCacheService>(client =>
         {
             client.Timeout = TimeSpan.FromSeconds(30);
@@ -157,11 +162,20 @@ public partial class App : Application
         services.AddSingleton<Services.McpService>();
 
         // Register LLM providers
-        services.AddSingleton<OllamaProvider>(sp => new OllamaProvider(
-            sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(OllamaProvider)),
-            sp.GetRequiredService<ILogger<OllamaProvider>>(),
-            sp.GetRequiredService<IToolRegistry>(),
-            sp.GetRequiredService<SettingsService>().GetCachedSettings().Providers.OllamaBaseUrl));
+        services.AddSingleton<OllamaProvider>(sp =>
+        {
+            var settingsService = sp.GetRequiredService<SettingsService>();
+
+            return new OllamaProvider(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(OllamaProvider)),
+                sp.GetRequiredService<ILogger<OllamaProvider>>(),
+                sp.GetRequiredService<IToolRegistry>(),
+                settingsService.GetCachedSettings().Providers.OllamaBaseUrl,
+                // Read per request, not captured, so changing it in Settings
+                // applies without a relaunch. The base URL above is the
+                // exception - it fixes the HttpClient's address.
+                () => settingsService.GetCachedSettings().Providers.OllamaContextWindow);
+        });
         services.AddSingleton<FreeTokenProvider>(sp =>
         {
             var httpClient = sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(FreeTokenProvider));

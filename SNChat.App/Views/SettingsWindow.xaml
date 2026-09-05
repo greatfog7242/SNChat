@@ -30,8 +30,18 @@
                         <TextBlock Text="Ollama" FontWeight="SemiBold" Margin="0,0,0,5"/>
                         <TextBlock Text="Server URL:" Margin="0,5,0,2"/>
                         <TextBox Text="{Binding OllamaBaseUrl, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,4"/>
-                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="0,0,0,20"
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="0,0,0,10"
                                    Text="http://localhost:11434 for this machine, or http://&lt;host&gt;:11434 for one on the network. The serving machine must run with OLLAMA_HOST=0.0.0.0 to accept connections from anywhere but itself. Takes effect after a restart."/>
+
+                        <TextBlock Text="Context window (num_ctx):" Margin="0,0,0,2"/>
+                        <TextBox Text="{Binding OllamaContextWindow, UpdateSourceTrigger=PropertyChanged}"
+                                 Width="200"
+                                 HorizontalAlignment="Left"
+                                 Margin="0,0,0,4"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="0,0,0,6"
+                                   Text="How much conversation Ollama keeps in mind, in tokens. Leave at 0 to let Ollama decide - but then nothing reports what it settled on, so the context meter has to assume the model's full trained length, which is usually more than you are really being served. Setting a figure here makes the meter exact, because the request asks for the same number the meter measures against."/>
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#B26500" Margin="0,0,0,20"
+                                   Text="Raise this carefully. The memory Ollama needs grows with it, and a value your GPU cannot hold will push the model into system RAM - generation gets drastically slower, or the model fails to load. 8192 to 32768 suits most setups. Anything above what the model was trained for is ignored."/>
 
                         <!-- FreeToken -->
                         <TextBlock Text="FreeToken" FontWeight="SemiBold" Margin="0,0,0,5"/>
@@ -257,7 +267,51 @@
                                   SelectedItem="{Binding DefaultProvider}"
                                   Width="200"
                                   HorizontalAlignment="Left"
-                                  Margin="0,0,0,15"/>
+                                  Margin="0,0,0,20"/>
+
+                        <Separator Margin="0,0,0,15"/>
+
+                        <TextBlock Text="Context Window" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="#666666" Margin="0,0,0,15"
+                                   Text="Every message resends the whole conversation, so a long one eventually fills the model's context window and the request starts failing. Compacting folds the older messages into a summary to make room. They stay on screen and in the saved file, greyed out; only what is sent to the model gets shorter. The meter beside the Tools switch shows how full the window is."/>
+
+                        <CheckBox Content="Compact automatically when the window fills up"
+                                  IsChecked="{Binding AutoCompact}"
+                                  Margin="0,0,0,4"/>
+                        <TextBlock Text="With this off, the meter still fills up but nothing happens until you press Compact."
+                                   FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="20,0,0,15"/>
+
+                        <TextBlock Text="Compact at:" Margin="0,0,0,2"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <Slider Value="{Binding CompactThresholdPercent}"
+                                    Minimum="10"
+                                    Maximum="100"
+                                    Width="300"
+                                    TickFrequency="5"
+                                    IsSnapToTickEnabled="True"
+                                    VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding CompactThresholdPercent, StringFormat='{}{0}% full'}"
+                                       Margin="10,0,0,0"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="0,0,0,15"
+                                   Text="Leave room below 100%: the reply has to fit alongside the prompt, and compacting itself needs space to send what it is summarizing. The meter turns amber ten points before this and red on reaching it."/>
+
+                        <TextBlock Text="Messages left untouched:" Margin="0,0,0,2"/>
+                        <TextBox Text="{Binding KeepRecentMessages, UpdateSourceTrigger=PropertyChanged}"
+                                 Width="200"
+                                 HorizontalAlignment="Left"
+                                 Margin="0,0,0,4"/>
+                        <TextBlock Text="The most recent messages are never summarized, since the exchange in progress is what the next answer depends on most."
+                                   FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="0,0,0,15"/>
+
+                        <TextBlock Text="Assumed window size (tokens):" Margin="0,0,0,2"/>
+                        <TextBox Text="{Binding FallbackWindowTokens, UpdateSourceTrigger=PropertyChanged}"
+                                 Width="200"
+                                 HorizontalAlignment="Left"
+                                 Margin="0,0,0,4"/>
+                        <TextBlock Text="Used for models whose provider does not report a context length. Ollama is the usual case - it serves models at 4096 tokens unless the modelfile says otherwise, so raise this only if you have configured yours for more."
+                                   FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="0,0,0,15"/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
