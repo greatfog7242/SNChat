@@ -341,24 +341,79 @@ public partial class ConversationListViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Opens a group, folding whatever else was open. One group's conversations
+    /// at a time keeps the column short enough to take in at a glance.
+    /// </summary>
     [RelayCommand]
     private async Task ToggleGroupAsync(ConversationGroupViewModel? group)
     {
         if (group == null)
             return;
 
-        group.IsExpanded = !group.IsExpanded;
+        var expanding = !group.IsExpanded;
+
+        if (expanding)
+        {
+            foreach (var other in Groups)
+                other.IsExpanded = ReferenceEquals(other, group);
+        }
+        else
+        {
+            group.IsExpanded = false;
+        }
+
         OnPropertyChanged(nameof(VisibleOrder));
 
         try
         {
-            await _groupService.SetExpandedAsync(group.Id, group.IsExpanded);
+            if (expanding)
+                await _groupService.SetExpandedExclusiveAsync(group.Id);
+            else
+                await _groupService.SetExpandedAsync(group.Id, false);
         }
         catch (Exception ex)
         {
             // Folding is a view preference; failing to remember it is not worth
             // interrupting the user for.
             _logger.LogWarning(ex, "Failed to remember group {Id} fold state", group.Id);
+        }
+    }
+
+    /// <summary>
+    /// Moves a group to sit either side of another. Called by a drop of one
+    /// group header onto another.
+    /// </summary>
+    public async Task ReorderGroupAsync(Guid movedId, Guid targetId, bool insertBefore)
+    {
+        if (movedId == targetId)
+            return;
+
+        var order = Groups.Select(g => g.Id).ToList();
+        if (!order.Contains(movedId) || !order.Contains(targetId))
+            return;
+
+        order.Remove(movedId);
+
+        // The index is read back after the removal, so shifting a group
+        // downwards does not land it one place short.
+        var insertAt = order.IndexOf(targetId);
+        if (!insertBefore)
+            insertAt++;
+
+        order.Insert(insertAt, movedId);
+
+        try
+        {
+            await _groupService.ReorderAsync(order);
+            await RebuildGroupingAsync();
+            _logger.LogInformation("Reordered group {Id}", movedId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to reorder group {Id}", movedId);
+            MessageBox.Show($"Failed to reorder groups: {ex.Message}", "Error",
+                MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -555,6 +610,18 @@ public partial class ConversationListViewModel : ObservableObject
             }
 
             Groups.Add(group);
+        }
+
+        // A file written before groups folded as an accordion can have several
+        // open at once. Keep the first and fold the rest, so what is shown and
+        // what is stored agree.
+        var open = Groups.Where(g => g.IsExpanded).ToList();
+        if (open.Count > 1)
+        {
+            foreach (var extra in open.Skip(1))
+                extra.IsExpanded = false;
+
+            await _groupService.SetExpandedExclusiveAsync(open[0].Id);
         }
 
         GroupUngroupedByDate(grouped);

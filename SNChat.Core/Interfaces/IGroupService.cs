@@ -28,6 +28,18 @@ public interface IGroupService
     Task SetExpandedAsync(Guid groupId, bool isExpanded);
 
     /// <summary>
+    /// Opens one group and folds every other, so the column shows one group's
+    /// contents at a time.
+    /// </summary>
+    Task SetExpandedExclusiveAsync(Guid groupId);
+
+    /// <summary>
+    /// Rearranges the groups into the given order. Any group not named is left
+    /// at the end, so a list built from a stale view cannot drop one.
+    /// </summary>
+    Task ReorderAsync(IReadOnlyList<Guid> orderedIds);
+
+    /// <summary>
     /// Forgets conversations that no longer exist on disk, so a group's count
     /// matches what it can actually show.
     /// </summary>

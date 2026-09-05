@@ -23,6 +23,17 @@ public partial class ConversationGroupViewModel : ObservableObject
     [ObservableProperty]
     private bool _isDropTarget;
 
+    /// <summary>
+    /// True while another group is dragged over this one's top half, marking
+    /// where it would be dropped in the order.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isReorderAbove;
+
+    /// <summary>As <see cref="IsReorderAbove"/>, for the bottom half.</summary>
+    [ObservableProperty]
+    private bool _isReorderBelow;
+
     public ConversationGroupViewModel(Guid id, string name, bool isExpanded)
     {
         Id = id;

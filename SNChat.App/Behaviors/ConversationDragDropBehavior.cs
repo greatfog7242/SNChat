@@ -27,11 +27,22 @@ public static class ConversationDragDropBehavior
     /// </summary>
     private const string ConversationIdsFormat = "SNChat.ConversationIds";
 
+    /// <summary>
+    /// Carries a single group id when a header is dragged to reorder. Kept
+    /// apart from <see cref="ConversationIdsFormat"/> because a header accepts
+    /// both, and what it does with a drop depends on which arrived.
+    /// </summary>
+    private const string GroupIdFormat = "SNChat.GroupId";
+
     // One gesture is in flight at a time, so the press is tracked statically
     // rather than per item.
     private static Point _pressOrigin;
     private static ConversationInfo? _pressedConversation;
     private static bool _pressPending;
+
+    private static Point _groupPressOrigin;
+    private static ConversationGroupViewModel? _pressedGroup;
+    private static bool _groupPressPending;
 
     #region Attached properties
 
@@ -47,17 +58,20 @@ public static class ConversationDragDropBehavior
     public static bool GetIsConversation(DependencyObject element) =>
         (bool)element.GetValue(IsConversationProperty);
 
-    /// <summary>Set on a group header to make it accept dropped conversations.</summary>
-    public static readonly DependencyProperty IsGroupTargetProperty =
+    /// <summary>
+    /// Set on a group header. It clicks to fold, drags to reorder, and accepts
+    /// both dropped conversations and another dragged header.
+    /// </summary>
+    public static readonly DependencyProperty IsGroupHeaderProperty =
         DependencyProperty.RegisterAttached(
-            "IsGroupTarget", typeof(bool), typeof(ConversationDragDropBehavior),
-            new PropertyMetadata(false, OnIsGroupTargetChanged));
+            "IsGroupHeader", typeof(bool), typeof(ConversationDragDropBehavior),
+            new PropertyMetadata(false, OnIsGroupHeaderChanged));
 
-    public static void SetIsGroupTarget(DependencyObject element, bool value) =>
-        element.SetValue(IsGroupTargetProperty, value);
+    public static void SetIsGroupHeader(DependencyObject element, bool value) =>
+        element.SetValue(IsGroupHeaderProperty, value);
 
-    public static bool GetIsGroupTarget(DependencyObject element) =>
-        (bool)element.GetValue(IsGroupTargetProperty);
+    public static bool GetIsGroupHeader(DependencyObject element) =>
+        (bool)element.GetValue(IsGroupHeaderProperty);
 
     /// <summary>
     /// Set on the ungrouped heading. Dropping there is how a conversation gets
@@ -205,7 +219,7 @@ public static class ConversationDragDropBehavior
 
     #region Dropping onto a group
 
-    private static void OnIsGroupTargetChanged(
+    private static void OnIsGroupHeaderChanged(
         DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         if (d is not FrameworkElement element)
@@ -214,6 +228,9 @@ public static class ConversationDragDropBehavior
         if ((bool)e.NewValue)
         {
             element.AllowDrop = true;
+            element.PreviewMouseLeftButtonDown += OnGroupMouseDown;
+            element.PreviewMouseMove += OnGroupMouseMove;
+            element.PreviewMouseLeftButtonUp += OnGroupMouseUp;
             element.DragEnter += OnGroupDragOver;
             element.DragOver += OnGroupDragOver;
             element.DragLeave += OnGroupDragLeave;
@@ -222,6 +239,9 @@ public static class ConversationDragDropBehavior
         else
         {
             element.AllowDrop = false;
+            element.PreviewMouseLeftButtonDown -= OnGroupMouseDown;
+            element.PreviewMouseMove -= OnGroupMouseMove;
+            element.PreviewMouseLeftButtonUp -= OnGroupMouseUp;
             element.DragEnter -= OnGroupDragOver;
             element.DragOver -= OnGroupDragOver;
             element.DragLeave -= OnGroupDragLeave;
@@ -229,26 +249,123 @@ public static class ConversationDragDropBehavior
         }
     }
 
+    private static void OnGroupMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not FrameworkElement element ||
+            element.DataContext is not ConversationGroupViewModel group)
+        {
+            return;
+        }
+
+        if (IsInsideButton(e.OriginalSource as DependencyObject, element))
+            return;
+
+        _groupPressOrigin = e.GetPosition(null);
+        _pressedGroup = group;
+        _groupPressPending = true;
+    }
+
+    private static void OnGroupMouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_groupPressPending || e.LeftButton != MouseButtonState.Pressed)
+            return;
+
+        if (sender is not FrameworkElement element || _pressedGroup == null)
+            return;
+
+        var offset = e.GetPosition(null) - _groupPressOrigin;
+        if (Math.Abs(offset.X) < SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(offset.Y) < SystemParameters.MinimumVerticalDragDistance)
+        {
+            return;
+        }
+
+        var group = _pressedGroup;
+
+        // Spent either way: DragDrop runs its own message loop, so the matching
+        // mouse up never arrives here and the click must not fire afterwards.
+        _groupPressPending = false;
+        _pressedGroup = null;
+
+        var data = new DataObject(GroupIdFormat, group.Id.ToString());
+        DragDrop.DoDragDrop(element, data, DragDropEffects.Move);
+
+        ClearReorderMarkers(FindViewModel(element));
+    }
+
+    private static void OnGroupMouseUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_groupPressPending || sender is not FrameworkElement element)
+            return;
+
+        var group = _pressedGroup;
+        _groupPressPending = false;
+        _pressedGroup = null;
+
+        if (group == null || !ReferenceEquals(element.DataContext, group))
+            return;
+
+        if (IsInsideButton(e.OriginalSource as DependencyObject, element))
+            return;
+
+        // Released without dragging: a plain click, which folds or unfolds.
+        var viewModel = FindViewModel(element);
+        viewModel?.ToggleGroupCommand.Execute(group);
+        e.Handled = true;
+    }
+
     private static void OnGroupDragOver(object sender, DragEventArgs e)
     {
-        var group = (sender as FrameworkElement)?.DataContext as ConversationGroupViewModel;
-
-        if (group == null || !e.Data.GetDataPresent(ConversationIdsFormat))
+        if (sender is not FrameworkElement element ||
+            element.DataContext is not ConversationGroupViewModel group)
         {
-            e.Effects = DragDropEffects.None;
+            return;
+        }
+
+        // Conversations land inside the group.
+        if (e.Data.GetDataPresent(ConversationIdsFormat))
+        {
+            group.IsDropTarget = true;
+            e.Effects = DragDropEffects.Move;
             e.Handled = true;
             return;
         }
 
-        group.IsDropTarget = true;
-        e.Effects = DragDropEffects.Move;
+        // Another header lands either side of this one, so which half of the
+        // header the pointer is over decides where the line is drawn.
+        if (e.Data.GetDataPresent(GroupIdFormat))
+        {
+            var draggedId = ReadGroupId(e);
+
+            if (draggedId == group.Id || draggedId == Guid.Empty)
+            {
+                group.IsReorderAbove = false;
+                group.IsReorderBelow = false;
+                e.Effects = DragDropEffects.None;
+                e.Handled = true;
+                return;
+            }
+
+            var above = e.GetPosition(element).Y < element.ActualHeight / 2;
+            group.IsReorderAbove = above;
+            group.IsReorderBelow = !above;
+            e.Effects = DragDropEffects.Move;
+            e.Handled = true;
+            return;
+        }
+
+        e.Effects = DragDropEffects.None;
         e.Handled = true;
     }
 
     private static void OnGroupDragLeave(object sender, DragEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is ConversationGroupViewModel group)
+        {
             group.IsDropTarget = false;
+            group.IsReorderAbove = false;
+            group.IsReorderBelow = false;
+        }
     }
 
     private static void OnGroupDrop(object sender, DragEventArgs e)
@@ -259,18 +376,29 @@ public static class ConversationDragDropBehavior
             return;
         }
 
-        group.IsDropTarget = false;
-        e.Handled = true;
+        var insertBefore = group.IsReorderAbove;
 
-        var ids = ReadIds(e);
-        if (ids.Count == 0)
-            return;
+        group.IsDropTarget = false;
+        group.IsReorderAbove = false;
+        group.IsReorderBelow = false;
+        e.Handled = true;
 
         var viewModel = FindViewModel(element);
         if (viewModel == null)
             return;
 
-        _ = viewModel.MoveToGroupAsync(ids, group.Id);
+        if (e.Data.GetDataPresent(GroupIdFormat))
+        {
+            var draggedId = ReadGroupId(e);
+            if (draggedId != Guid.Empty)
+                _ = viewModel.ReorderGroupAsync(draggedId, group.Id, insertBefore);
+
+            return;
+        }
+
+        var ids = ReadIds(e);
+        if (ids.Count > 0)
+            _ = viewModel.MoveToGroupAsync(ids, group.Id);
     }
 
     #endregion
@@ -341,6 +469,28 @@ public static class ConversationDragDropBehavior
     #endregion
 
     #region Helpers
+
+    private static Guid ReadGroupId(DragEventArgs e) =>
+        e.Data.GetData(GroupIdFormat) is string payload && Guid.TryParse(payload, out var id)
+            ? id
+            : Guid.Empty;
+
+    /// <summary>
+    /// Wipes the insertion lines. A drag that ends outside every header leaves
+    /// no DragLeave on the one it last crossed, which would strand a line.
+    /// </summary>
+    private static void ClearReorderMarkers(ConversationListViewModel? viewModel)
+    {
+        if (viewModel == null)
+            return;
+
+        foreach (var group in viewModel.Groups)
+        {
+            group.IsReorderAbove = false;
+            group.IsReorderBelow = false;
+            group.IsDropTarget = false;
+        }
+    }
 
     private static List<Guid> ReadIds(DragEventArgs e)
     {

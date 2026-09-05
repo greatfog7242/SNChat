@@ -220,12 +220,14 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <StackPanel>
-                                <!-- Group header: click to fold, and a drop target
-                                     whether folded or not. -->
-                                <Border behaviors:ConversationDragDropBehavior.IsGroupTarget="True"
+                                <!-- Group header: click to fold, drag to reorder,
+                                     and a drop target whether folded or not.
+                                     The lines either side mark where a dragged
+                                     group would land. -->
+                                <Grid Margin="4,2">
+                                <Border behaviors:ConversationDragDropBehavior.IsGroupHeader="True"
                                         Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                         Padding="8,6"
-                                        Margin="4,2"
                                         CornerRadius="4"
                                         Cursor="Hand">
                                     <Border.Style>
@@ -241,13 +243,6 @@
                                             </Style.Triggers>
                                         </Style>
                                     </Border.Style>
-
-                                    <Border.InputBindings>
-                                        <MouseBinding MouseAction="LeftClick"
-                                                    Command="{Binding DataContext.ToggleGroupCommand,
-                                                            RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                    CommandParameter="{Binding}"/>
-                                    </Border.InputBindings>
 
                                     <Border.ContextMenu>
                                         <ContextMenu DataContext="{Binding PlacementTarget.Tag,
@@ -304,6 +299,21 @@
                                                   Margin="6,0,0,0"/>
                                     </Grid>
                                 </Border>
+
+                                <!-- Insertion markers. Not hit testable, or they
+                                     would steal the drag events from the header
+                                     they sit on. -->
+                                <Rectangle Height="2"
+                                           Fill="#3B82F6"
+                                           VerticalAlignment="Top"
+                                           IsHitTestVisible="False"
+                                           Visibility="{Binding IsReorderAbove, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                <Rectangle Height="2"
+                                           Fill="#3B82F6"
+                                           VerticalAlignment="Bottom"
+                                           IsHitTestVisible="False"
+                                           Visibility="{Binding IsReorderBelow, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                </Grid>
 
                                 <!-- Members -->
                                 <ItemsControl ItemsSource="{Binding Conversations}"

@@ -178,6 +178,60 @@ public class GroupService : IGroupService
         }
     }
 
+    public async Task SetExpandedExclusiveAsync(Guid groupId)
+    {
+        await _gate.WaitAsync();
+        try
+        {
+            var groups = await LoadAsync();
+            var changed = false;
+
+            foreach (var group in groups)
+            {
+                var wanted = group.Id == groupId;
+                if (group.IsExpanded == wanted)
+                    continue;
+
+                group.IsExpanded = wanted;
+                changed = true;
+            }
+
+            if (changed)
+                await SaveAsync();
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task ReorderAsync(IReadOnlyList<Guid> orderedIds)
+    {
+        await _gate.WaitAsync();
+        try
+        {
+            var groups = await LoadAsync();
+
+            var rank = new Dictionary<Guid, int>();
+            for (var i = 0; i < orderedIds.Count; i++)
+                rank[orderedIds[i]] = i;
+
+            // Anything the caller did not mention keeps its place at the end
+            // rather than being dropped.
+            var reordered = groups
+                .OrderBy(g => rank.TryGetValue(g.Id, out var index) ? index : int.MaxValue)
+                .ToList();
+
+            groups.Clear();
+            groups.AddRange(reordered);
+            await SaveAsync();
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task PruneAsync(IEnumerable<Guid> existingConversationIds)
     {
         var alive = existingConversationIds.ToHashSet();
