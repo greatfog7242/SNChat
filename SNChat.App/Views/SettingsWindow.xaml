@@ -300,6 +300,55 @@
             </TabItem>
 
             <!-- Templates Tab -->
+            <TabItem Header="Modes">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="20">
+                        <TextBlock Text="Answering Modes" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,15"/>
+
+                        <TextBlock Text="Each mode carries a standing instruction, sent ahead of the conversation on every message. Pick the mode in the main window, next to Provider and Model. A template's own system prompt is added after whichever of these is active."
+                                   FontSize="12"
+                                   Foreground="#666666"
+                                   TextWrapping="Wrap"
+                                   Margin="0,0,0,15"/>
+
+                        <TextBlock Text="Chat" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <TextBox Text="{Binding ChatModePrompt, UpdateSourceTrigger=PropertyChanged}"
+                                 AcceptsReturn="True"
+                                 TextWrapping="Wrap"
+                                 MinHeight="70"
+                                 MaxHeight="140"
+                                 VerticalScrollBarVisibility="Auto"
+                                 Padding="8,6"
+                                 Margin="0,0,0,15"/>
+
+                        <TextBlock Text="Coding" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <TextBox Text="{Binding CodingModePrompt, UpdateSourceTrigger=PropertyChanged}"
+                                 AcceptsReturn="True"
+                                 TextWrapping="Wrap"
+                                 MinHeight="70"
+                                 MaxHeight="140"
+                                 VerticalScrollBarVisibility="Auto"
+                                 Padding="8,6"
+                                 Margin="0,0,0,15"/>
+
+                        <TextBlock Text="Scientific" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <TextBox Text="{Binding ScientificModePrompt, UpdateSourceTrigger=PropertyChanged}"
+                                 AcceptsReturn="True"
+                                 TextWrapping="Wrap"
+                                 MinHeight="70"
+                                 MaxHeight="140"
+                                 VerticalScrollBarVisibility="Auto"
+                                 Padding="8,6"
+                                 Margin="0,0,0,10"/>
+
+                        <TextBlock Text="Leave one empty to have that mode add nothing of its own."
+                                   FontSize="11"
+                                   Foreground="#999999"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
             <TabItem Header="Templates">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20">

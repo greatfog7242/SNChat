@@ -7,6 +7,77 @@ public class AppSettings
     public ToolSettings Tools { get; set; } = new();
     public UIPreferences UI { get; set; } = new();
     public StorageSettings Storage { get; set; } = new();
+    public ModeSettings Modes { get; set; } = new();
+}
+
+/// <summary>The answering styles offered in the main window's Mode picker.</summary>
+public static class ChatMode
+{
+    public const string Chat = "Chat";
+    public const string Coding = "Coding";
+    public const string Scientific = "Scientific";
+
+    public static readonly string[] All = { Chat, Coding, Scientific };
+}
+
+/// <summary>
+/// A standing instruction per mode, sent ahead of the conversation. Held as a
+/// system prompt rather than pasted onto each message so that switching mode
+/// changes how the next answer comes back without leaving the old instruction
+/// buried in turns already saved.
+/// </summary>
+public class ModeSettings
+{
+    /// <summary>
+    /// Which mode was in use when the app last ran. Kept here beside the
+    /// prompts, matching how the last provider and model are remembered.
+    /// </summary>
+    public string LastMode { get; set; } = ChatMode.Chat;
+
+    public string ChatPrompt { get; set; } =
+        "Answer plainly and conversationally. Get to the point, and say when " +
+        "you are unsure rather than guessing with confidence.";
+
+    public string CodingPrompt { get; set; } =
+        "You are helping with software. Prefer complete, runnable code over " +
+        "fragments, and match the conventions of the code you are shown. " +
+        "Point out edge cases, error handling and anything that looks like a " +
+        "bug. When you are uncertain whether an API exists, say so rather " +
+        "than inventing one.";
+
+    public string ScientificPrompt { get; set; } =
+        "Answer with precision. Carry units through calculations and state " +
+        "the assumptions a result depends on. Separate what is established " +
+        "from what is contested or speculative, and give the reasoning rather " +
+        "than only the conclusion.";
+
+    /// <summary>
+    /// The prompt for a mode, or empty for an unknown one, so a hand-edited
+    /// settings file naming a mode that does not exist simply adds nothing.
+    /// </summary>
+    public string PromptFor(string mode) => mode switch
+    {
+        ChatMode.Chat => ChatPrompt,
+        ChatMode.Coding => CodingPrompt,
+        ChatMode.Scientific => ScientificPrompt,
+        _ => string.Empty
+    };
+
+    /// <summary>
+    /// The whole system prompt for a request: this mode's standing instruction
+    /// first, then whatever a template set, separated by a blank line. Either
+    /// may be absent - a mode can be blanked out in Settings, and most
+    /// templates carry no system prompt - and an empty result means no system
+    /// message should be sent at all rather than an empty one.
+    /// </summary>
+    public string BuildSystemPrompt(string mode, string? templatePrompt)
+    {
+        var parts = new[] { PromptFor(mode), templatePrompt }
+            .Where(part => !string.IsNullOrWhiteSpace(part))
+            .Select(part => part!.Trim());
+
+        return string.Join("\n\n", parts);
+    }
 }
 
 public class ProviderSettings

@@ -282,12 +282,21 @@
                                   VerticalAlignment="Center"
                                   IsEnabled="{Binding IsStreaming, Converter={StaticResource InverseBooleanConverter}}"/>
                     </StackPanel>
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0">
                         <TextBlock Text="Model:" VerticalAlignment="Center" Margin="0,0,5,0"/>
                         <ComboBox ItemsSource="{Binding AvailableModels}"
                                   SelectedItem="{Binding CurrentModel}"
                                   MinWidth="180"
                                   VerticalAlignment="Center"
+                                  IsEnabled="{Binding IsStreaming, Converter={StaticResource InverseBooleanConverter}}"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="Mode:" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                        <ComboBox ItemsSource="{Binding AvailableModes}"
+                                  SelectedItem="{Binding CurrentMode}"
+                                  MinWidth="100"
+                                  VerticalAlignment="Center"
+                                  ToolTip="The standing instruction sent with every message. Reword these in Settings - Modes."
                                   IsEnabled="{Binding IsStreaming, Converter={StaticResource InverseBooleanConverter}}"/>
                     </StackPanel>
                 </StackPanel>

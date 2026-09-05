@@ -90,6 +90,17 @@ public partial class SettingsViewModel : ObservableObject
     public IReadOnlyList<string> ImageSourceOptions => ImageSourcePreference.All;
     public IReadOnlyList<string> WebSourceOptions => WebSourcePreference.All;
 
+    // Mode prompts, sent ahead of the conversation for whichever mode is picked
+    // in the main window.
+    [ObservableProperty]
+    private string _chatModePrompt = string.Empty;
+
+    [ObservableProperty]
+    private string _codingModePrompt = string.Empty;
+
+    [ObservableProperty]
+    private string _scientificModePrompt = string.Empty;
+
     // Default Parameters
     [ObservableProperty]
     private double _defaultTemperature = 0.7;
@@ -260,6 +271,11 @@ public partial class SettingsViewModel : ObservableObject
             WebSource = settings.Tools.WebSource;
             SafeSearch = settings.Tools.SafeSearch;
 
+            // Mode prompts
+            ChatModePrompt = settings.Modes.ChatPrompt;
+            CodingModePrompt = settings.Modes.CodingPrompt;
+            ScientificModePrompt = settings.Modes.ScientificPrompt;
+
             // Default Parameters
             DefaultTemperature = settings.Defaults.Temperature;
             DefaultMaxTokens = settings.Defaults.MaxTokens;
@@ -327,6 +343,10 @@ public partial class SettingsViewModel : ObservableObject
             settings.Tools.WebSource = WebSource;
             settings.Tools.SafeSearch = SafeSearch;
 
+            settings.Modes.ChatPrompt = ChatModePrompt;
+            settings.Modes.CodingPrompt = CodingModePrompt;
+            settings.Modes.ScientificPrompt = ScientificModePrompt;
+
             settings.Defaults.Temperature = DefaultTemperature;
             settings.Defaults.MaxTokens = DefaultMaxTokens;
             settings.Defaults.TopP = DefaultTopP;
@@ -393,6 +413,9 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnFallbackToCommonsChanged(bool value) => HasUnsavedChanges = true;
     partial void OnWebSourceChanged(string value) => HasUnsavedChanges = true;
     partial void OnSafeSearchChanged(bool value) => HasUnsavedChanges = true;
+    partial void OnChatModePromptChanged(string value) => HasUnsavedChanges = true;
+    partial void OnCodingModePromptChanged(string value) => HasUnsavedChanges = true;
+    partial void OnScientificModePromptChanged(string value) => HasUnsavedChanges = true;
     partial void OnDefaultTemperatureChanged(double value) => HasUnsavedChanges = true;
     partial void OnDefaultMaxTokensChanged(int value) => HasUnsavedChanges = true;
     partial void OnDefaultTopPChanged(double value) => HasUnsavedChanges = true;

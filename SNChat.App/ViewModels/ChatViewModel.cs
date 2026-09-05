@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Threading;
@@ -112,6 +112,22 @@ public partial class ChatViewModel : ObservableObject
 
     public bool HasSystemPrompt => !string.IsNullOrWhiteSpace(SystemPrompt);
 
+    /// <summary>
+    /// The answering style in use. Its standing instruction is combined with
+    /// any template's system prompt when a request goes out.
+    /// </summary>
+    [ObservableProperty]
+    private string _currentMode = ChatMode.Chat;
+
+    public IReadOnlyList<string> AvailableModes { get; } = ChatMode.All;
+
+    partial void OnCurrentModeChanged(string value) => PersistSelection();
+
+    /// <summary>The instructions sent ahead of the conversation.</summary>
+    private string BuildSystemPrompt() =>
+        _settingsService.GetCachedSettings().Modes
+            .BuildSystemPrompt(CurrentMode, SystemPrompt);
+
     /// <summary>Files dropped but not yet sent with a message.</summary>
     [ObservableProperty]
     private ObservableCollection<Attachment> _pendingAttachments = new();
@@ -221,9 +237,15 @@ public partial class ChatViewModel : ObservableObject
             ? defaults.DefaultModel
             : defaults.LastModel;
 
-        _logger.LogInformation("Restored selection: {Provider} / {Model}",
+        // A mode named in a hand-edited settings file that is not one of the
+        // three falls back rather than leaving the picker showing nothing.
+        var mode = _settingsService.GetCachedSettings().Modes.LastMode;
+        _currentMode = ChatMode.All.Contains(mode) ? mode : ChatMode.Chat;
+
+        _logger.LogInformation("Restored selection: {Provider} / {Model} / {Mode}",
             _currentProviderName,
-            string.IsNullOrEmpty(_currentModel) ? "(first available)" : _currentModel);
+            string.IsNullOrEmpty(_currentModel) ? "(first available)" : _currentModel,
+            _currentMode);
     }
 #pragma warning restore MVVMTK0034
 
@@ -244,11 +266,12 @@ public partial class ChatViewModel : ObservableObject
                 var settings = _settingsService.GetCachedSettings();
                 settings.Defaults.LastProvider = CurrentProviderName;
                 settings.Defaults.LastModel = CurrentModel;
+                settings.Modes.LastMode = CurrentMode;
                 await _settingsService.SaveSettingsAsync(settings);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Could not save the provider/model selection");
+                _logger.LogWarning(ex, "Could not save the provider/model/mode selection");
             }
         });
     }
@@ -566,7 +589,7 @@ public partial class ChatViewModel : ObservableObject
                     MaxTokens = defaults.MaxTokens,
                     TopP = defaults.TopP
                 },
-                SystemPrompt = string.IsNullOrWhiteSpace(SystemPrompt) ? null : SystemPrompt,
+                SystemPrompt = BuildSystemPrompt() is { Length: > 0 } prompt ? prompt : null,
                 CancellationToken = _cancellationTokenSource.Token,
                 Tools = WebSearchEnabled
                     ? _toolRegistry.GetTools()
