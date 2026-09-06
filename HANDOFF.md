@@ -15,6 +15,7 @@ Working branch `cache-search-images`, **ahead of origin and not pushed**. Newest
 
 | Commit | What |
 |---|---|
+| `61acf6a` | Tool calls and results persisted — stage 4's prerequisite |
 | `beef193` | Conversation remembers its instructions; rules and skills editors |
 | `40259b6` | Frontmatter split fix — conversations stopped being unreadable |
 | `c4a9149` | Standing rules from RULES.md, and skills the model can invoke |
@@ -30,25 +31,38 @@ Working branch `cache-search-images`, **ahead of origin and not pushed**. Newest
 
 ## Uncommitted work in the tree
 
-Nothing. Everything is committed as of `beef193`.
+Nothing. Everything is committed as of `61acf6a`.
+
+**The published `publish\SNChat.App.exe` is stale** — built 2026-09-05 23:30, before the
+frontmatter fix, so it still fails to load conversations whose title contains three hyphens.
+Republish before judging any conversation-loading behaviour from it.
 
 **Not yet pushed.** Run `git log --oneline origin/cache-search-images..HEAD` for what is
 pending — a fixed number written here goes stale the moment another commit lands.
 
 ## Where to pick up
 
-**Foundation and Stages 1–3 are done.** The assistant can be pointed at a project, build,
-test, run and debug in it across .NET, C++, Python, Node, Java and Android, and be briefed
-with rules and skills that persist.
+**Foundation and Stages 1–3 are done, and Stage 4's prerequisite is now in.** Tool calls and
+results persist with the conversation, so a loop can see what its own tools returned.
 
-**Next is Stage 4, looping — and read its prerequisite first.** Tool calls and results are
-never persisted. Both providers build the tool transcript inside one `GenerateStreamAsync`
-call and discard it, and `MessageRole` has only `User, Assistant, System`. A turn-to-turn
-loop would therefore forget what its own tools returned, seeing only the prose it wrote
-about them. Adding `MessageRole.Tool` plus `MessageHeader`/`StorageService` support has to
-come before the loop is worth building; `DEVELOPMENT_PLAN.md` lists the other hazards
-(a separate `IsAgentRunning` flag, cancellation that survives the `finally`, the compaction
-race, and the single-slot meter fields).
+**Next is the loop itself.** The seam is `ChatViewModel.SendMessageAsync`, right after
+`GenerateResponseAsync` returns: at that moment `IsStreaming` is already false, the token
+source is disposed, the reply is saved and the meter has refreshed. Hazards to handle, all
+listed with line references in `DEVELOPMENT_PLAN.md`:
+
+- `IsStreaming` is false *between* iterations, so the Send button re-enables and the user
+  can start a concurrent turn. Needs a separate `IsAgentRunning` flag.
+- A cancelled turn leaves the assistant message in `Messages` but not in
+  `CurrentConversation.Messages`; the two collections diverge.
+- Cancellation is not observable afterwards — the token source is nulled in the `finally`.
+- `AutoCompactIfNeededAsync` itself calls the provider and saves; re-entering races it.
+- `_measuredPromptTokens` / `_measuredThrough` / `_requestedMessageCount` are single-slot
+  fields that overlapping turns corrupt.
+
+Also needed: a `task_complete` tool so stopping is observable rather than string-matched out
+of prose, budgets from the project (`MaxLoopIterations`, `MaxLoopMinutes`), the git
+checkpoint before a full-auto run, and a real progress surface — `StatusMessage` is one
+unstructured string with no iteration counter, and tool results are never shown at all.
 
 Still unverifiable on this machine: Maven and Ruby/Rails, neither being installed.
 
@@ -56,7 +70,7 @@ Still unverifiable on this machine: Maven and Ruby/Rails, neither being installe
 
 ```bash
 dotnet build SNChat.slnx
-dotnet test SNChat.Tests/SNChat.Tests.csproj      # 289 passing as of 2026-09-06
+dotnet test SNChat.Tests/SNChat.Tests.csproj      # 301 passing as of 2026-09-06
 
 # Publish: single file. IncludeNativeLibrariesForSelfExtract is NOT optional -
 # without it five native WPF DLLs land beside the exe and it is not single-file.
@@ -121,7 +135,7 @@ the real thing, because more than one bug this week survived a green build.
 | `GoogleWebSource` / `GoogleImageSource` | Complete and wired, **never exercised** against a successful response — the API appears closed to new projects |
 | OpenRouter provider | Argument handling fixed alongside Ollama's but **not re-tested live** after that change |
 
-Test count is **289 passing** at `beef193`. If your count is lower, check you are on that
+Test count is **301 passing** at `61acf6a`. If your count is lower, check you are on that
 commit before assuming you broke something.
 
 Also stale and not to be trusted: `README.md`, `SESSION_SUMMARY.md`, `CHANGELOG.md` all
