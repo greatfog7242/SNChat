@@ -594,20 +594,25 @@ Under `%APPDATA%\SNChat` (paste that into the address bar of Explorer):
 
 Project rules live as `RULES.md` in the project folder itself, not here.
 
+Folders you allow through the dialog (§5b) are kept **nowhere**. They exist only in memory
+for as long as the app is open, which is why closing it takes them all back.
+
 **The log is the honest record.** When something is not behaving as expected, it is in there —
 which tools were registered at startup, every call, and why anything was refused. The
 assistant can read it too: ask *"check your log and tell me why that was refused."*
 
 ### Settings with no switch in the window
 
-A few live only in `config\settings.json`, edited by hand with the app closed. All default
-to on:
+Several things live only in `config\settings.json`, edited by hand with the app closed:
 
 | Setting | Effect |
 |---|---|
-| `BuildTools.AllowRun` | Whether it may run programs at all. |
-| `BuildTools.AllowCommit` | Whether it may commit. Turning this off means unattended runs stop to ask you. |
+| `Tools.McpServers` | **Which folders it may read and write** (§3), and the search server. There is no UI for this at all. |
+| `BuildTools.AllowRun` | Whether it may run programs. Default on. |
+| `BuildTools.AllowCommit` | Whether it may commit. Default on; turning it off means unattended runs stop to ask you. |
 | `BuildTools.RunTimeoutSeconds` | Seconds a program may run before it is stopped. Default 60. |
+
+Restart the app after editing this file — it is read once, at startup.
 
 ---
 
@@ -616,17 +621,20 @@ to on:
 Which of these are available depends on your settings; several are absent until a project
 exists.
 
-**Looking around**
+**Looking around** — these come from the file server, so they follow the *file* boundary (§3),
+not your project list
 
 | Tool | Does |
 |---|---|
 | `list_projects` | Lists your projects and what kind each is |
 | `read_file`, `read_text_file`, `read_multiple_files` | Reads files |
-| `list_directory`, `directory_tree` | Lists folder contents |
+| `read_media_file` | Reads an image or other binary |
+| `list_directory`, `list_directory_with_sizes`, `directory_tree` | Lists folder contents |
 | `search_files` | Finds files by name |
 | `get_file_info` | Size, dates |
+| `list_allowed_directories` | **Which folders it may read.** Ask for this first when a file it should be able to see is refused |
 
-**Changing things**
+**Changing things** — same boundary
 
 | Tool | Does |
 |---|---|
@@ -677,6 +685,7 @@ There is deliberately no push, reset, checkout or clean. Its commits carry a mar
 3. Pick the project in the toolbar. Set Mode to **Coding**.
 4. Ask it to build something. Watch what it does.
 5. Ask it to fix a bug and confirm the fix by running it.
+   If it needs a file from elsewhere, ask for it and say yes to the dialog (§5b).
 6. Once you trust it on that kind of task, set the project to **runs on its own**, commit
    first, and give it a job with a test it can check itself against.
 7. Write down the corrections you keep repeating as **rules**.
