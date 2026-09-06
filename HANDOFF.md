@@ -11,7 +11,7 @@
 
 ## Branch and commits
 
-Working branch `cache-search-images`, **ahead of origin and not pushed**. Newest first:
+Working branch `cache-search-images`, **pushed and in sync with origin**. Newest first:
 
 | Commit | What |
 |---|---|
@@ -34,13 +34,10 @@ Working branch `cache-search-images`, **ahead of origin and not pushed**. Newest
 
 ## Uncommitted work in the tree
 
-Nothing. Everything is committed as of `964f283`.
+Nothing. Everything is committed and pushed as of `27d901a`.
 
 **The published `publish\SNChat.App.exe` predates these two fixes** (built 15:36). Republish
 before another unattended run, or it will still stop to ask for a commit.
-
-**Not yet pushed.** Run `git log --oneline origin/cache-search-images..HEAD` for what is
-pending.
 
 ## Where to pick up
 
