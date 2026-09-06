@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using SNChat.Core.Services;
@@ -42,6 +42,13 @@ public class RunTestsTool : ITool
                 Type = "string",
                 Description = "Which configuration to test. Defaults to Debug.",
                 Enum = new List<string> { "Debug", "Release" }
+            },
+            ["test"] = new()
+            {
+                Type = "string",
+                Description = "Run only tests whose name contains this. Use it to re-run a " +
+                              "single failing test and read its assertion message and stack " +
+                              "trace. Omit to run the whole suite."
             }
         },
         Required = new List<string> { "path" }
@@ -106,6 +113,27 @@ public class RunTestsTool : ITool
             })
         };
 
+        // Each filter goes on as a single argument, so nothing in it can be read
+        // as a second one - there is no shell here to re-split it.
+        var filter = ReadFilter(arguments);
+
+        if (filter != null)
+        {
+            args.AddRange(target.Kind switch
+            {
+                ProjectKind.Gradle => new[] { "--tests", $"*{filter}*" },
+                ProjectKind.CMake => new[] { "-R", filter },
+                _ => new[] { "--filter", $"FullyQualifiedName~{filter}" }
+            });
+
+            // Asking for one test means wanting to know why it failed, not that
+            // it failed, and the assertion message only appears above minimal.
+            var verbosity = args.IndexOf("--verbosity");
+
+            if (verbosity >= 0 && verbosity + 1 < args.Count)
+                args[verbosity + 1] = "normal";
+        }
+
         var result = await _runner.RunAsync(
             fileName,
             args,
@@ -113,7 +141,22 @@ public class RunTestsTool : ITool
             TimeSpan.FromSeconds(Math.Clamp(settings.TimeoutSeconds, 10, 3600)),
             cancellationToken);
 
-        return Summarize(result, Path.GetFileName(target.Path));
+        return Summarize(result, Path.GetFileName(target.Path), filter != null);
+    }
+
+    /// <summary>
+    /// The test filter, or null. Whitespace-only is treated as absent rather
+    /// than as a filter matching everything, which would silently run the suite
+    /// while the model believed it had narrowed things down.
+    /// </summary>
+    private static string? ReadFilter(IReadOnlyDictionary<string, object?> arguments)
+    {
+        if (!arguments.TryGetValue("test", out var raw) || raw is null)
+            return null;
+
+        var filter = raw.ToString()?.Trim();
+
+        return string.IsNullOrEmpty(filter) ? null : filter;
     }
 
     /// <summary>
@@ -122,7 +165,7 @@ public class RunTestsTool : ITool
     /// picked out on top of the usual build errors - a suite that would not
     /// compile still needs its compiler errors shown.
     /// </summary>
-    internal static string Summarize(ProcessResult result, string what)
+    public static string Summarize(ProcessResult result, string what, bool detailed = false)
     {
         if (!result.Started)
             return $"Tests for {what} could not start: {result.StartupError}";
@@ -153,6 +196,18 @@ public class RunTestsTool : ITool
 
             if (failures.Count > 25)
                 report.AppendLine($"  ... and {failures.Count - 25} more");
+
+            // Only when a specific test was asked for. Across a whole suite the
+            // names are what is wanted; for one test the assertion is the point,
+            // and pasting every message from a broad run would swamp the context.
+            var detail = FailureDetail(result.Output);
+
+            if (detailed && detail.Length > 0)
+            {
+                report.AppendLine();
+                report.AppendLine("Why it failed:");
+                report.AppendLine(detail);
+            }
         }
 
         // A suite that did not compile fails with no failing tests at all; its
@@ -198,6 +253,77 @@ public class RunTestsTool : ITool
         @"^\s*(?:\[xUnit\.net[^\]]*\]\s*)?(?<name>[\w.+<>:` ]+?)\s*(?:\[FAIL\]|\bFailed\b(?:\s*\[[^\]]*\])?)\s*$",
         RegexOptions.Compiled);
 
+    /// <summary>
+    /// The shape `dotnet test` actually prints, where the verdict comes *first*:
+    ///
+    ///   Failed Proj.Tests.MathTests.Adds_two_numbers [3 ms]
+    ///   X Proj.Tests.MathTests.Adds_two_numbers [3 ms]
+    ///
+    /// Missing this matched nothing, so no failing test was ever named and the
+    /// summary fell through to dumping raw output instead.
+    /// </summary>
+    private static readonly Regex FailedTestLeadingPattern = new(
+        @"^\s*(?:X|Failed)\s+(?<name>[\w.+<>:`]+(?:\([^)]*\))?)\s*(?:\[[^\]]*\])?\s*$",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// The assertion message and the top of the stack, which is what actually
+    /// says why a test failed. VSTest prints these under "Error Message:" and
+    /// "Stack Trace:" headings; ctest and Gradle print their own thing, so
+    /// anything not matching those headings falls back to nothing rather than
+    /// guessing at structure that is not there.
+    ///
+    /// Only the first few frames are kept: the failing assertion and the code
+    /// under test are at the top, and everything below is the runner's own
+    /// plumbing.
+    /// </summary>
+    public static string FailureDetail(string output, int maxLines = 30)
+    {
+        var lines = output.Split('\n').Select(l => l.TrimEnd('\r')).ToList();
+        var kept = new List<string>();
+        var capturing = false;
+        var stackFrames = 0;
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.Trim();
+
+            if (trimmed.StartsWith("Error Message:", StringComparison.OrdinalIgnoreCase))
+            {
+                capturing = true;
+                stackFrames = 0;
+                kept.Add(trimmed);
+                continue;
+            }
+
+            if (!capturing)
+                continue;
+
+            if (trimmed.StartsWith("Stack Trace:", StringComparison.OrdinalIgnoreCase))
+            {
+                kept.Add(trimmed);
+                continue;
+            }
+
+            // A blank line after something has been captured ends the block.
+            if (trimmed.Length == 0)
+            {
+                capturing = false;
+                continue;
+            }
+
+            if (trimmed.StartsWith("at ", StringComparison.Ordinal) && ++stackFrames > 4)
+                continue;
+
+            kept.Add("  " + trimmed);
+
+            if (kept.Count >= maxLines)
+                break;
+        }
+
+        return string.Join("\n", kept);
+    }
+
     private static List<string> FailedTests(string output)
     {
         var names = new List<string>();
@@ -206,7 +332,11 @@ public class RunTestsTool : ITool
         foreach (var raw in output.Split('\n'))
         {
             var line = raw.TrimEnd('\r');
-            var match = FailedTestPattern.Match(line);
+
+            var match = FailedTestLeadingPattern.Match(line);
+
+            if (!match.Success)
+                match = FailedTestPattern.Match(line);
 
             if (!match.Success)
                 continue;

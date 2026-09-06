@@ -151,6 +151,13 @@ public partial class App : Application
         services.AddSingleton<RunTestsTool>();
         services.AddSingleton<RunProgramTool>();
 
+        // Reads this app's own log so the assistant can find out why one of its
+        // own tool calls was refused. The folder is fixed here rather than taken
+        // from the model, so the tool has no path argument at all.
+        services.AddSingleton(_ => new ReadAppLogTool(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "SNChat", "logs")));
+
         services.AddSingleton<IToolRegistry>(sp =>
         {
             var registry = new ToolRegistry(sp.GetRequiredService<ILogger<ToolRegistry>>());
@@ -170,6 +177,11 @@ public partial class App : Application
             // anyway - inventing Wikimedia URLs that are correctly formed and
             // point at nothing. Nothing else here can search for an image.
             registry.Register(sp.GetRequiredService<ImageSearchTool>());
+
+            // Always available: it reads only this app's own log and can act on
+            // nothing, and it is how the assistant finds out why one of its own
+            // calls was refused.
+            registry.Register(sp.GetRequiredService<ReadAppLogTool>());
 
             // Build tools are registered only once there is somewhere they may
             // work - a folder allowed in Settings, or a project. Their

@@ -14,6 +14,18 @@ public class ToolRegistry : IToolRegistry
 
     public void Register(ITool tool)
     {
+        // Registration is last-write-wins, and MCP tools are registered after
+        // the built-in ones, so a server exposing a name we already use would
+        // quietly replace ours. The model would then call what looks like our
+        // tool and get somebody else's, which is close to undiagnosable without
+        // this line.
+        if (_tools.TryGetValue(tool.Name, out var existing))
+        {
+            _logger.LogWarning(
+                "Tool {ToolName} is being replaced: {Existing} gives way to {Replacement}",
+                tool.Name, existing.GetType().Name, tool.GetType().Name);
+        }
+
         _tools[tool.Name] = tool;
         _logger.LogInformation("Registered tool: {ToolName}", tool.Name);
     }
