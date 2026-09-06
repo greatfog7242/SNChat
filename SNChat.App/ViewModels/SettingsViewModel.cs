@@ -1,4 +1,5 @@
 ﻿using System.Collections.ObjectModel;
+using System.IO;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -29,6 +30,7 @@ public partial class SettingsViewModel : ObservableObject
 {
     private readonly SettingsService _settingsService;
     private readonly OpenRouterProvider _openRouter;
+    private readonly ProjectService _projectService;
     private readonly ILogger<SettingsViewModel> _logger;
 
     /// <summary>Every tool-capable model, kept so filtering does not refetch.</summary>
@@ -181,6 +183,26 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private string _buildMsBuildPath = string.Empty;
 
+    // Projects: the folders the assistant may work in, and how much it may do
+    // unattended in each. Saved as they are edited rather than with the Save
+    // button, because each one is its own file.
+    [ObservableProperty]
+    private ObservableCollection<Project> _projects = new();
+
+    [ObservableProperty]
+    private Project? _selectedProject;
+
+    [ObservableProperty]
+    private string _projectStatus = string.Empty;
+
+    public IReadOnlyList<AutonomyMode> AutonomyOptions { get; } =
+        Enum.GetValues<AutonomyMode>();
+
+    public bool HasSelectedProject => SelectedProject != null;
+
+    partial void OnSelectedProjectChanged(Project? value) =>
+        OnPropertyChanged(nameof(HasSelectedProject));
+
     [ObservableProperty]
     private bool _hasUnsavedChanges;
 
@@ -193,14 +215,121 @@ public partial class SettingsViewModel : ObservableObject
         SettingsService settingsService,
         OpenRouterProvider openRouter,
         ILLMProviderFactory providerFactory,
+        ProjectService projectService,
         ILogger<SettingsViewModel> logger)
     {
         _settingsService = settingsService;
         _openRouter = openRouter;
+        _projectService = projectService;
         _logger = logger;
         ProviderOptions = providerFactory.GetAvailableProviders().ToList();
 
         _ = LoadSettingsAsync();
+        _ = LoadProjectsAsync();
+    }
+
+    private async Task LoadProjectsAsync()
+    {
+        try
+        {
+            Projects = new ObservableCollection<Project>(await _projectService.LoadAllAsync());
+            ProjectStatus = Projects.Count == 0
+                ? "No projects yet. Add one to let the assistant build and run in that folder."
+                : $"{Projects.Count} project(s).";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not load projects");
+            ProjectStatus = $"Could not load projects: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Adds a project for a folder the user picks. The folder browser is new to
+    /// this app - nothing else here has ever needed one.
+    /// </summary>
+    [RelayCommand]
+    private async Task AddProjectAsync()
+    {
+        var dialog = new Microsoft.Win32.OpenFolderDialog
+        {
+            Title = "Choose the folder the assistant may work in",
+            Multiselect = false
+        };
+
+        if (dialog.ShowDialog() != true)
+            return;
+
+        var root = dialog.FolderName;
+
+        // Two projects for one folder would give it two different autonomy
+        // settings, and which one applied would depend on which was selected.
+        if (Projects.Any(p => string.Equals(p.RootPath, root, StringComparison.OrdinalIgnoreCase)))
+        {
+            ProjectStatus = "There is already a project for that folder.";
+            return;
+        }
+
+        var project = new Project
+        {
+            Name = new DirectoryInfo(root).Name,
+            RootPath = root
+        };
+
+        await _projectService.SaveAsync(project);
+        Projects.Add(project);
+        SelectedProject = project;
+
+        ProjectStatus = $"Added {project.Name}. Restart the app for its tools to become available.";
+        _logger.LogInformation("Added project {Name} at {Root}", project.Name, root);
+    }
+
+    /// <summary>
+    /// Writes the selected project back. Called from the editor rather than the
+    /// window's Save button, because projects are separate files and the button
+    /// only writes settings.json.
+    /// </summary>
+    [RelayCommand]
+    private async Task SaveProjectAsync()
+    {
+        if (SelectedProject == null)
+            return;
+
+        try
+        {
+            await _projectService.SaveAsync(SelectedProject);
+            ProjectStatus = $"Saved {SelectedProject.Name}.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not save project {Name}", SelectedProject.Name);
+            ProjectStatus = $"Could not save: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private async Task RemoveProjectAsync()
+    {
+        if (SelectedProject == null)
+            return;
+
+        var project = SelectedProject;
+
+        var confirmed = MessageBox.Show(
+            $"Remove the project \"{project.Name}\"?\n\n" +
+            "This only removes it from SNChat. Nothing in the folder is touched, " +
+            "and the assistant simply loses permission to build and run there.",
+            "Remove project",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (confirmed != MessageBoxResult.Yes)
+            return;
+
+        await _projectService.DeleteAsync(project);
+        Projects.Remove(project);
+        SelectedProject = null;
+        ProjectStatus = $"Removed {project.Name}.";
     }
 
     /// <summary>

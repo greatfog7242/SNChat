@@ -24,7 +24,15 @@ public partial class ChatViewModel : ObservableObject
     private readonly SettingsService _settingsService;
     private readonly WebImageCacheService _webImageCache;
     private readonly ConversationCompactor _compactor;
+    private readonly ProjectService _projectService;
+    private readonly ProjectContext _projectContext;
     private readonly ILogger<ChatViewModel> _logger;
+
+    /// <summary>
+    /// True while the picker is being moved to match a conversation that was
+    /// just opened, so that restoring a choice is not recorded as making one.
+    /// </summary>
+    private bool _applyingProjectFromConversation;
     private CancellationTokenSource? _cancellationTokenSource;
     private ILLMProvider _currentProvider;
 
@@ -288,6 +296,17 @@ public partial class ChatViewModel : ObservableObject
     [ObservableProperty]
     private ObservableCollection<string> _availableProviders = new();
 
+    /// <summary>Projects to choose from, with "(no project)" first.</summary>
+    [ObservableProperty]
+    private ObservableCollection<Project> _availableProjects = new();
+
+    /// <summary>
+    /// The project this conversation is working in. Decides which folder the
+    /// build and run tools may touch, and how much the assistant may do on its own.
+    /// </summary>
+    [ObservableProperty]
+    private Project? _currentProject;
+
     /// <summary>
     /// When off, no tool definitions are sent, keeping ordinary chats fast.
     /// Initialised from Tools.EnabledByDefault, which starts on.
@@ -305,6 +324,8 @@ public partial class ChatViewModel : ObservableObject
         SettingsService settingsService,
         WebImageCacheService webImageCache,
         ConversationCompactor compactor,
+        ProjectService projectService,
+        ProjectContext projectContext,
         ILogger<ChatViewModel> logger)
     {
         _providerFactory = providerFactory;
@@ -314,6 +335,8 @@ public partial class ChatViewModel : ObservableObject
         _settingsService = settingsService;
         _webImageCache = webImageCache;
         _compactor = compactor;
+        _projectService = projectService;
+        _projectContext = projectContext;
         _logger = logger;
 
         // Load available providers
@@ -332,10 +355,123 @@ public partial class ChatViewModel : ObservableObject
 
         StartNewConversation();
         _ = LoadAvailableModelsAsync();
+        _ = LoadProjectsAsync();
 
         // Only from here on does a change represent a choice worth saving;
         // everything above is the restore itself.
         _selectionRestored = true;
+    }
+
+    /// <summary>
+    /// Reads the projects from disk into the picker. Fire-and-forget for the
+    /// same reason the model list is: a folder read must not hold up the window
+    /// appearing, and having no projects is a perfectly ordinary state.
+    /// </summary>
+    private async Task LoadProjectsAsync()
+    {
+        try
+        {
+            var projects = await _projectService.LoadAllAsync();
+
+            AvailableProjects.Clear();
+            AvailableProjects.Add(NoProject);
+
+            foreach (var project in projects)
+                AvailableProjects.Add(project);
+
+            // Nothing is selected until a conversation asks for one, so a new
+            // chat is not silently given permission to build somewhere.
+            CurrentProject ??= NoProject;
+
+            _logger.LogInformation("Loaded {Count} project(s)", projects.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not load projects");
+        }
+    }
+
+    /// <summary>
+    /// The "not working in a project" entry. A real item rather than a null
+    /// selection, because a combo box offers no way to pick nothing, and
+    /// detaching a conversation from its project has to be possible.
+    /// </summary>
+    public static readonly Project NoProject = new() { Id = Guid.Empty, Name = "(no project)" };
+
+    private static bool IsRealProject(Project? project) =>
+        project != null && project.Id != Guid.Empty;
+
+    partial void OnCurrentProjectChanged(Project? value)
+    {
+        // What the build and run tools read to decide which folder they may
+        // touch, so it has to track the picker exactly.
+        _projectContext.Current = IsRealProject(value) ? value : null;
+
+        if (CurrentConversation != null)
+            CurrentConversation.ProjectId = IsRealProject(value) ? value!.Id : null;
+
+        OnPropertyChanged(nameof(HasProject));
+        OnPropertyChanged(nameof(ProjectSummary));
+
+        if (!_selectionRestored || _applyingProjectFromConversation)
+            return;
+
+        _logger.LogInformation("Conversation is now working in project {Project} ({Root})",
+            value?.Name, IsRealProject(value) ? value!.RootPath : "-");
+
+        // The choice belongs to the conversation, so it is saved with it.
+        _ = SaveConversationAsync();
+    }
+
+    public bool HasProject => IsRealProject(CurrentProject);
+
+    /// <summary>Reads as "well_done · step-approve", shown beside the picker.</summary>
+    public string ProjectSummary
+    {
+        get
+        {
+            if (!IsRealProject(CurrentProject))
+                return string.Empty;
+
+            var autonomy = CurrentProject!.Autonomy switch
+            {
+                AutonomyMode.FullAuto => "runs on its own",
+                AutonomyMode.StepApprove => "asks before each step",
+                _ => "one reply at a time"
+            };
+
+            return CurrentProject.RootExists
+                ? autonomy
+                : "folder is missing";
+        }
+    }
+
+    /// <summary>
+    /// Puts the picker on the project a loaded conversation belongs to, without
+    /// that being treated as the user choosing it - which would save the
+    /// conversation again for no reason.
+    /// </summary>
+    private void ApplyProjectFromConversation()
+    {
+        _applyingProjectFromConversation = true;
+
+        try
+        {
+            var id = CurrentConversation?.ProjectId;
+
+            CurrentProject = id == null
+                ? NoProject
+                : AvailableProjects.FirstOrDefault(p => p.Id == id) ?? NoProject;
+
+            // A conversation pointing at a project that has since been removed
+            // is worth saying out loud: its tools will silently stop working.
+            if (id != null && !IsRealProject(CurrentProject))
+                _logger.LogWarning("Conversation refers to project {Id}, which no longer exists", id);
+        }
+        finally
+        {
+            _applyingProjectFromConversation = false;
+        }
     }
 
     /// <summary>
@@ -808,6 +944,11 @@ public partial class ChatViewModel : ObservableObject
             Title = "New Conversation",
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
+            // Carried over from the conversation just left. Starting a new chat
+            // while working on something is nearly always still working on that
+            // something, and re-picking the project every time would be tedious
+            // enough to be got wrong.
+            ProjectId = IsRealProject(CurrentProject) ? CurrentProject!.Id : null,
             Metadata = new ConversationMetadata
             {
                 ModelName = CurrentModel,
@@ -1036,6 +1177,7 @@ public partial class ChatViewModel : ObservableObject
 
         UpdateConversationTokenSummary();
         ResetContextMeasurement();
+        ApplyProjectFromConversation();
 
         _logger.LogInformation("Loaded conversation: {Title} with {Count} messages",
             conversation.Title, conversation.Messages.Count);

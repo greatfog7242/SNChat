@@ -430,6 +430,103 @@
                 </ScrollViewer>
             </TabItem>
 
+            <!-- Projects: the folders the assistant may work in -->
+            <TabItem Header="Projects">
+                <Grid Margin="20">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="220"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Grid.ColumnSpan="2"
+                               Text="Projects" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+
+                    <ListBox Grid.Row="1" Grid.Column="0"
+                             ItemsSource="{Binding Projects}"
+                             SelectedItem="{Binding SelectedProject}"
+                             DisplayMemberPath="Name"
+                             Margin="0,0,15,0"/>
+
+                    <!-- Editor for whichever project is selected -->
+                    <ScrollViewer Grid.Row="1" Grid.Column="1" VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="#666666" Margin="0,0,0,12"
+                                       Text="A project is a folder the assistant may build and run in, together with how much it may do without asking. Adding one grants it permission for that folder - you do not need to list the path under Build tools as well."/>
+
+                            <StackPanel Visibility="{Binding HasSelectedProject,
+                                                     Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <TextBlock Text="Name:" Margin="0,0,0,2"/>
+                                <TextBox Text="{Binding SelectedProject.Name, UpdateSourceTrigger=PropertyChanged}"
+                                         Margin="0,0,0,10"/>
+
+                                <TextBlock Text="Folder:" Margin="0,0,0,2"/>
+                                <TextBox Text="{Binding SelectedProject.RootPath}"
+                                         IsReadOnly="True"
+                                         Background="#F5F5F5"
+                                         FontFamily="Consolas, Courier New, monospace"
+                                         Margin="0,0,0,10"/>
+
+                                <TextBlock Text="How much it may do on its own:" Margin="0,0,0,2"/>
+                                <ComboBox ItemsSource="{Binding AutonomyOptions}"
+                                          SelectedItem="{Binding SelectedProject.Autonomy}"
+                                          Width="220" HorizontalAlignment="Left" Margin="0,0,0,4"/>
+                                <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="0,0,0,12"
+                                           Text="Manual is today's behaviour - one reply per message. StepApprove keeps working but stops to ask before each step. FullAuto carries on until it reports the task done or a budget runs out. Start with StepApprove until you have watched a model work on this project; a model that loops confidently into wrong work does the most damage unobserved."/>
+
+                                <TextBlock Text="Stop after this many steps:" Margin="0,0,0,2"/>
+                                <TextBox Text="{Binding SelectedProject.MaxLoopIterations, UpdateSourceTrigger=PropertyChanged}"
+                                         Width="120" HorizontalAlignment="Left" Margin="0,0,0,10"/>
+
+                                <TextBlock Text="Stop after this many minutes:" Margin="0,0,0,2"/>
+                                <TextBox Text="{Binding SelectedProject.MaxLoopMinutes, UpdateSourceTrigger=PropertyChanged}"
+                                         Width="120" HorizontalAlignment="Left" Margin="0,0,0,10"/>
+
+                                <CheckBox Content="Take a git checkpoint before running unattended"
+                                          IsChecked="{Binding SelectedProject.RequireGitCheckpoint}"
+                                          Margin="0,0,0,4"/>
+                                <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="20,0,0,12"
+                                           Text="Unattended work that writes files and runs programs needs a way back, and git is the way back that already exists. With this on, an automatic run will not start in a folder that is not a clean repository."/>
+
+                                <TextBlock Text="Notes:" Margin="0,0,0,2"/>
+                                <TextBox Text="{Binding SelectedProject.Notes, UpdateSourceTrigger=PropertyChanged}"
+                                         AcceptsReturn="True" TextWrapping="Wrap"
+                                         MinHeight="60" MaxHeight="120"
+                                         VerticalScrollBarVisibility="Auto"
+                                         Margin="0,0,0,10"/>
+
+                                <Button Content="Save project"
+                                        Command="{Binding SaveProjectCommand}"
+                                        Padding="15,6" HorizontalAlignment="Left"/>
+                            </StackPanel>
+
+                            <TextBlock Text="Select a project on the left, or add one."
+                                       Foreground="#999999" FontStyle="Italic"
+                                       Visibility="{Binding HasSelectedProject,
+                                                    Converter={StaticResource InverseBooleanToVisibilityConverter}}"/>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <StackPanel Grid.Row="2" Grid.Column="0" Orientation="Horizontal" Margin="0,10,0,0">
+                        <Button Content="Add..." Command="{Binding AddProjectCommand}"
+                                Padding="12,5" Margin="0,0,8,0"/>
+                        <Button Content="Remove" Command="{Binding RemoveProjectCommand}"
+                                IsEnabled="{Binding HasSelectedProject}"
+                                Padding="12,5"/>
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="2" Grid.Column="1"
+                               Text="{Binding ProjectStatus}"
+                               FontSize="11" Foreground="#666666"
+                               TextWrapping="Wrap" VerticalAlignment="Center"
+                               Margin="0,10,0,0"/>
+                </Grid>
+            </TabItem>
+
             <!-- Build tools: lets the model compile and test local projects -->
             <TabItem Header="Build tools">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">

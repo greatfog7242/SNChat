@@ -304,6 +304,26 @@
                                   VerticalAlignment="Center"
                                   IsEnabled="{Binding IsStreaming, Converter={StaticResource InverseBooleanConverter}}"/>
                     </StackPanel>
+                    <!-- The folder this conversation works in. Also what decides
+                         which folder the build and run tools may touch. -->
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0">
+                        <TextBlock Text="Project:" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                        <ComboBox ItemsSource="{Binding AvailableProjects}"
+                                  SelectedItem="{Binding CurrentProject}"
+                                  DisplayMemberPath="Name"
+                                  MinWidth="130"
+                                  VerticalAlignment="Center"
+                                  ToolTip="The folder the assistant may build and run in, and how much it may do on its own. Manage these in Settings - Projects."
+                                  IsEnabled="{Binding IsStreaming, Converter={StaticResource InverseBooleanConverter}}"/>
+                        <TextBlock Text="{Binding ProjectSummary}"
+                                   FontSize="10"
+                                   Foreground="#777777"
+                                   VerticalAlignment="Center"
+                                   Margin="6,0,0,0"
+                                   Visibility="{Binding HasProject,
+                                                Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                    </StackPanel>
+
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <TextBlock Text="Mode:" VerticalAlignment="Center" Margin="0,0,5,0"/>
                         <ComboBox ItemsSource="{Binding AvailableModes}"
