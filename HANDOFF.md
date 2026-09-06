@@ -15,6 +15,7 @@ Working branch `cache-search-images`, **ahead of origin and not pushed**. Newest
 
 | Commit | What |
 |---|---|
+| `ef1a0f0` | Project picker in the toolbar and a Projects tab in Settings |
 | `95883e4` | `read_app_log`, `run_tests` filter, tool-name collision warning |
 | `5651b12` | Projects, and `run_program` — the assistant can run what it builds |
 | `2e88414` | Tool arguments keep their shape (fixed `edit_file` failing 100% of the time) |
@@ -25,10 +26,23 @@ Working branch `cache-search-images`, **ahead of origin and not pushed**. Newest
 
 ## Uncommitted work in the tree
 
-Nothing. Everything is committed as of `95883e4`.
+Nothing. Everything is committed as of `ef1a0f0`.
 
 **Not yet pushed.** Run `git log --oneline origin/cache-search-images..HEAD` for what is
 pending — a fixed number written here goes stale the moment another commit lands.
+
+## Where to pick up
+
+The **Foundation and Stage 1 are done**: projects exist, are selectable, and the assistant
+can build, test, run and read its own log inside them.
+
+**Next is Stage 2, languages.** Extend `ProjectKind` and `ProjectLocator.Identify` with
+marker-file detection, and add a table of build/run/test commands per kind — Python, Node/TS,
+Java, Rails, Kotlin/Android. Two things to design around rather than paper over: Android
+"run" means deploying to a device via adb, not launching a process, and a Rails server never
+exits, so it does not fit `run_program`'s run-to-completion model. Resolve interpreters
+through `ToolchainLocator.Resolve`, not bare names — they have the same off-PATH problem
+cmake had.
 
 ## Active plan
 
@@ -41,8 +55,8 @@ step-by-step approved **per project**.
 
 | Stage | Contents | Status |
 |---|---|---|
-| Foundation | `Project` model + `ProjectService`, `Conversation.ProjectId`, project selector UI, folder picker | **in progress** — model/service/permissions done, UI not started |
-| 1 | `run_program` (+stdin/args), `run_tests` filter, `read_app_log`, `ProcessRunner` stdin/stderr | **tools done** — all five registered and verified in the running app. UI (project selector, Settings tab, folder picker) still to do |
+| Foundation | `Project` model + `ProjectService`, `Conversation.ProjectId`, project selector UI, folder picker | **done** |
+| 1 | `run_program` (+stdin/args), `run_tests` filter, `read_app_log`, `ProcessRunner` stdin/stderr | **done** — all five tools registered and verified in the running app |
 | 2 | Python, Node/TS, Java, Rails, Kotlin/Android toolchains | not started |
 | 3 | Rules (`RULES.md` per project) + model-invocable skills | not started |
 | 4 | Autonomous loop, `task_complete`, git checkpoint, budgets | not started |
