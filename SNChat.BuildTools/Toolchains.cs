@@ -56,9 +56,13 @@ public static class Toolchains
         ProjectKind.Maven => Maven(new List<string> { "-q", "test" }),
         ProjectKind.Node => Npm(new List<string> { "test" }),
 
-        // Run through the interpreter rather than as "pytest", so it works
-        // without pytest's own launcher script being on the PATH.
-        ProjectKind.Python => Python(new List<string> { "-m", "pytest" }),
+        // pytest when it is installed, unittest when it is not. unittest ships
+        // with Python, so the fallback always works - without it, a machine with
+        // Python but no pytest reports "No module named pytest" and looks like a
+        // broken tool rather than a missing package.
+        ProjectKind.Python => Python(HasPytest()
+            ? new List<string> { "-m", "pytest" }
+            : new List<string> { "-m", "unittest", "discover", "-v" }),
 
         ProjectKind.Ruby => Bundle(ProjectLocator.IsRails(target)
             ? new List<string> { "exec", "rails", "test" }
@@ -88,6 +92,44 @@ public static class Toolchains
 
         _ => null
     };
+
+    /// <summary>
+    /// Whether pytest can be imported, asked once. Running Python to find out
+    /// costs a process launch, and the answer does not change while the app is
+    /// open - installing a package mid-session is rare enough to be worth a
+    /// restart.
+    /// </summary>
+    private static readonly Lazy<bool> PytestInstalled = new(() =>
+    {
+        var python = ToolchainLocator.FindOnPathAny("python", "python3");
+
+        if (python == null)
+            return false;
+
+        try
+        {
+            using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = python,
+                ArgumentList = { "-c", "import pytest" },
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+
+            if (process == null)
+                return false;
+
+            return process.WaitForExit(10_000) && process.ExitCode == 0;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    });
+
+    public static bool HasPytest() => PytestInstalled.Value;
 
     private static ToolchainCommand Python(List<string> arguments)
     {

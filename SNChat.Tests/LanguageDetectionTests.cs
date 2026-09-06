@@ -138,6 +138,23 @@ public class LanguageDetectionTests : IDisposable
     }
 
     [Fact]
+    public void Python_tests_fall_back_to_unittest_when_pytest_is_absent()
+    {
+        // A machine with Python but no pytest is ordinary. Without the fallback
+        // it reports "No module named pytest", which reads as a broken tool
+        // rather than a missing package. unittest ships with Python.
+        var command = Toolchains.Test(
+            new BuildTarget(ProjectKind.Python, _root, "py"), "Debug", new BuildToolSettings());
+
+        if (!command.CanRun)
+            return;
+
+        var expected = Toolchains.HasPytest() ? "pytest" : "unittest";
+
+        Assert.Contains(expected, string.Join(" ", command.Arguments));
+    }
+
+    [Fact]
     public void The_two_things_run_program_cannot_do_are_stated_rather_than_failing_oddly()
     {
         // Android needs a device, and a Rails server never exits. Both are real
