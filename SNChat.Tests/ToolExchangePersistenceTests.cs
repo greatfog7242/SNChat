@@ -148,6 +148,35 @@ public class ToolExchangePersistenceTests
     }
 
     [Fact]
+    public void An_automatic_continuation_is_not_shown_as_the_users_own_message()
+    {
+        // It has to be sent as a user turn for the model to answer it, but it did
+        // not come from the user. Whoever reads the conversation afterwards
+        // should be able to tell which turns were theirs.
+        var nudge = new Message { Role = MessageRole.User, IsAutoContinue = true };
+
+        Assert.Equal("Continued automatically", nudge.RoleLabel);
+    }
+
+    [Fact]
+    public void An_automatic_continuation_is_still_marked_when_read_back()
+    {
+        var header = MessageHeader.Format(
+            2, new Message { Role = MessageRole.User, IsAutoContinue = true })["## Message ".Length..];
+
+        Assert.True(MessageHeader.TryParse(header, out _, out _, out var facts));
+        Assert.True(facts.IsAutoContinue);
+    }
+
+    [Fact]
+    public void A_message_the_user_typed_carries_no_automatic_marker()
+    {
+        var header = MessageHeader.Format(1, new Message { Role = MessageRole.User });
+
+        Assert.DoesNotContain("auto=", header);
+    }
+
+    [Fact]
     public void Only_a_tool_message_reports_itself_as_an_exchange()
     {
         Assert.True(Exchange().IsToolExchange);

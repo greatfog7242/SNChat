@@ -740,9 +740,16 @@ public partial class ChatViewModel : ObservableObject
         // even if generation is cancelled or fails
         await SaveConversationAsync();
 
+        // Before the model touches anything. Taking it afterwards was wrong: the
+        // first turn edits files, which leaves the folder dirty, so the run then
+        // refused to continue because of its own work and asked to be committed.
+        var mayRunUnattended = await PrepareUnattendedRunAsync();
+
         await GenerateResponseAsync(typed);
         await AutoCompactIfNeededAsync();
-        await RunAutonomouslyAsync();
+
+        if (mayRunUnattended)
+            await RunAutonomouslyAsync();
     }
 
     /// <summary>
@@ -761,25 +768,7 @@ public partial class ChatViewModel : ObservableObject
         if (!loop.IsAutonomous || IsAgentRunning)
             return;
 
-        // Anything left over from a previous run would otherwise stop this one
-        // before it has done anything.
-        _signals.Reset();
-
-        var checkpoint = await _checkpoints.PrepareAsync(
-            CurrentProject!.RootPath, CurrentProject.RequireGitCheckpoint);
-
-        if (!checkpoint.CanProceed)
-        {
-            AgentStatus = "Did not start: " + checkpoint.Message;
-            _logger.LogWarning("Autonomous run refused: {Reason}", checkpoint.Message);
-            MessageBox.Show(checkpoint.Message, "Cannot work unattended",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
         IsAgentRunning = true;
-        _logger.LogInformation("Working on its own in {Project}: {Checkpoint}",
-            CurrentProject.Name, checkpoint.Message);
 
         try
         {
@@ -813,7 +802,11 @@ public partial class ChatViewModel : ObservableObject
                 {
                     Role = MessageRole.User,
                     Content = AgentLoop.ContinuePrompt,
-                    Timestamp = DateTime.UtcNow
+                    Timestamp = DateTime.UtcNow,
+                    // Marked, because it has to be sent as a user turn for the
+                    // model to answer it, but it did not come from the user and
+                    // must not be shown as though it did.
+                    IsAutoContinue = true
                 };
 
                 Messages.Add(nudge);
@@ -827,6 +820,56 @@ public partial class ChatViewModel : ObservableObject
         {
             IsAgentRunning = false;
         }
+    }
+
+    /// <summary>
+    /// Takes the way back, before any work happens, and says whether this
+    /// conversation may then keep working on its own.
+    ///
+    /// Called ahead of the first reply rather than after it. Doing it afterwards
+    /// meant the model had already edited files, so the folder was dirty and the
+    /// run refused to continue on account of its own changes - which read as the
+    /// assistant stopping to ask permission for no reason.
+    ///
+    /// A refusal does not silence the assistant. The message still gets its
+    /// reply; only the unattended continuation is withheld, since that is the
+    /// part with nothing to undo to.
+    /// </summary>
+    private async Task<bool> PrepareUnattendedRunAsync()
+    {
+        var loop = new AgentLoop(IsRealProject(CurrentProject) ? CurrentProject : null);
+
+        if (!loop.IsAutonomous || IsAgentRunning)
+            return false;
+
+        // Anything left over from a previous run would otherwise stop this one
+        // before it has done anything.
+        _signals.Reset();
+
+        var checkpoint = await _checkpoints.PrepareAsync(
+            CurrentProject!.RootPath, CurrentProject.RequireGitCheckpoint);
+
+        if (!checkpoint.CanProceed)
+        {
+            AgentStatus = "Answering once only: " + checkpoint.Message;
+            _logger.LogWarning("Not working unattended: {Reason}", checkpoint.Message);
+
+            MessageBox.Show(
+                checkpoint.Message + Environment.NewLine + Environment.NewLine +
+                "Your message will still be answered, but the assistant will not " +
+                "carry on working by itself.",
+                "Working on its own is off for now",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+
+            return false;
+        }
+
+        _logger.LogInformation("Working on its own in {Project}: {Checkpoint}",
+            CurrentProject.Name, checkpoint.Message);
+
+        AgentStatus = checkpoint.Message;
+        return true;
     }
 
     /// <summary>

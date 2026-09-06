@@ -97,6 +97,17 @@
                             <DataTrigger Binding="{Binding IsCompacted}" Value="True">
                                 <Setter Property="Opacity" Value="0.45"/>
                             </DataTrigger>
+
+                            <!-- The nudge an unattended run sends itself. It has
+                                 to be a user turn for the model to answer it,
+                                 but it did not come from the user, so it must
+                                 not look like the rest of their messages. -->
+                            <DataTrigger Binding="{Binding IsAutoContinue}" Value="True">
+                                <Setter Property="Background" Value="#F3E5F5"/>
+                                <Setter Property="Margin" Value="50,5,10,5"/>
+                                <Setter Property="HorizontalAlignment" Value="Right"/>
+                                <Setter Property="Opacity" Value="0.7"/>
+                            </DataTrigger>
                         </Style.Triggers>
                         <Setter Property="Padding" Value="12"/>
                         <Setter Property="CornerRadius" Value="8"/>

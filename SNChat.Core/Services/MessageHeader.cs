@@ -76,6 +76,9 @@ public static class MessageHeader
         if (!string.IsNullOrEmpty(message.ToolCallId))
             fields.Add($"call={message.ToolCallId}");
 
+        if (message.IsAutoContinue)
+            fields.Add("auto=true");
+
         if (message.IsCompacted)
             fields.Add("compacted=true");
 
@@ -158,6 +161,9 @@ public static class MessageHeader
                 case "call":
                     facts.ToolCallId = value;
                     break;
+                case "auto":
+                    facts.IsAutoContinue = ParseBool(value);
+                    break;
                 case "compacted":
                     facts.IsCompacted = ParseBool(value);
                     break;
@@ -194,6 +200,9 @@ public class MessageFacts
 
     /// <summary>The id the model gave the call, where the provider uses one.</summary>
     public string ToolCallId { get; set; } = string.Empty;
+
+    /// <summary>Sent by an unattended run to itself, not typed by the user.</summary>
+    public bool IsAutoContinue { get; set; }
 
     /// <summary>Folded into a later summary, so no longer sent to the model.</summary>
     public bool IsCompacted { get; set; }

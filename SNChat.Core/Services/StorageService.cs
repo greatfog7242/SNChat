@@ -364,6 +364,7 @@ public class StorageService : IStorageService
                 CompletionTokens = facts.CompletionTokens,
                 ReasoningTokens = facts.ReasoningTokens,
                 Cost = facts.Cost,
+                IsAutoContinue = facts.IsAutoContinue,
                 IsCompacted = facts.IsCompacted,
                 IsCompactionSummary = facts.IsCompactionSummary
             });

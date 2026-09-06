@@ -154,9 +154,20 @@ public class Message : INotifyPropertyChanged
 
     public bool IsToolExchange => Role == MessageRole.Tool;
 
+    /// <summary>
+    /// True for the nudge an unattended run sends itself to take another step.
+    ///
+    /// It has to go out as a user turn, because that is what the model answers -
+    /// but it did not come from the user, and showing it as though it did is
+    /// simply untrue. Whoever reads the conversation afterwards should be able
+    /// to tell which turns were theirs.
+    /// </summary>
+    public bool IsAutoContinue { get; set; }
+
     /// <summary>The heading on the message card, which says more than the role alone.</summary>
     public string RoleLabel =>
         IsCompactionSummary ? "Summary of earlier messages"
+        : IsAutoContinue ? "Continued automatically"
         : IsToolExchange ? $"Tool · {ToolName}"
         : IsCompacted ? $"{Role} · compacted"
         : Role.ToString();
@@ -260,7 +271,8 @@ public class Message : INotifyPropertyChanged
             IsCompactionSummary = IsCompactionSummary,
             ToolName = ToolName,
             ToolCallId = ToolCallId,
-            ToolArguments = ToolArguments
+            ToolArguments = ToolArguments,
+            IsAutoContinue = IsAutoContinue
         };
     }
 }
