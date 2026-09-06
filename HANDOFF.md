@@ -15,6 +15,7 @@ Working branch `cache-search-images`, **ahead of origin and not pushed**. Newest
 
 | Commit | What |
 |---|---|
+| `c4a9149` | Standing rules from RULES.md, and skills the model can invoke |
 | `f7d7f55` | Python, Node, Maven and Ruby; scripts in `run_program`; Kotlin diagnostics |
 | `ef1a0f0` | Project picker in the toolbar and a Projects tab in Settings |
 | `95883e4` | `read_app_log`, `run_tests` filter, tool-name collision warning |
@@ -27,29 +28,29 @@ Working branch `cache-search-images`, **ahead of origin and not pushed**. Newest
 
 ## Uncommitted work in the tree
 
-Nothing. Everything is committed as of `f7d7f55`.
+Nothing. Everything is committed as of `c4a9149`.
 
 **Not yet pushed.** Run `git log --oneline origin/cache-search-images..HEAD` for what is
 pending — a fixed number written here goes stale the moment another commit lands.
 
 ## Where to pick up
 
-Foundation and Stages 1 and 2 are done. The assistant can be pointed at a project and will
-build, test, run and debug in it across .NET, C++, Python, Node, Java and Android.
+Foundation and Stages 1–2 are done. Stage 3 works but is not finished.
 
-**Next is Stage 3, rules and skills** (see `DEVELOPMENT_PLAN.md`):
+**Finish Stage 3 first — two things are outstanding:**
 
-- **Rules** — a third contributor to the system prompt, which today has exactly two
-  (mode prompt, then template prompt, joined by a blank line). Layer global rules, then a
-  `RULES.md` read from the project root, then mode, then template. While there, fix an
-  existing hole: the active system prompt is not persisted anywhere, so it is lost on
-  restart and when loading an old conversation.
-- **Skills** — `TemplateService` already stores markdown with YAML frontmatter and
-  `{{variables}}`, which is most of a skill system. Two gaps: its parser reads exactly seven
-  frontmatter keys and silently discards anything else, and only the *user* can invoke a
-  template — the model has no path to one. Add `invocable` to the frontmatter and expose a
-  single `use_skill` / `list_skills` pair rather than one tool per skill, since every tool
-  definition is sent on every request and the MCP tools already cost ~16k tokens.
+1. **The active system prompt is still not persisted.** It is lost on restart and when
+   loading an old conversation. This predates the rules work and was listed in
+   `DEVELOPMENT_PLAN.md` as part of this stage. Store it with the conversation.
+2. **Neither rules nor skills have a Settings editor.** Both are file-edited today:
+   `RULES.md` under `%APPDATA%\SNChat` or a project root, and `invocable: true` hand-added
+   to a template's frontmatter. Templates already have a picker window that could carry the
+   checkbox.
+
+**Then Stage 4, looping** — and note its prerequisite, which is the largest hidden cost in
+the plan: tool calls and results are never persisted, so a turn-to-turn loop would forget
+what its own tools returned. `MessageRole` has only `User, Assistant, System`. Adding
+`MessageRole.Tool` plus storage has to come before the loop is worth building.
 
 Still unverifiable on this machine: Maven and Ruby/Rails, neither being installed.
 
@@ -57,7 +58,7 @@ Still unverifiable on this machine: Maven and Ruby/Rails, neither being installe
 
 ```bash
 dotnet build SNChat.slnx
-dotnet test SNChat.Tests/SNChat.Tests.csproj      # 249 passing as of 2026-09-06
+dotnet test SNChat.Tests/SNChat.Tests.csproj      # 276 passing as of 2026-09-06
 
 # Publish: single file. IncludeNativeLibrariesForSelfExtract is NOT optional -
 # without it five native WPF DLLs land beside the exe and it is not single-file.
@@ -122,7 +123,7 @@ the real thing, because more than one bug this week survived a green build.
 | `GoogleWebSource` / `GoogleImageSource` | Complete and wired, **never exercised** against a successful response — the API appears closed to new projects |
 | OpenRouter provider | Argument handling fixed alongside Ollama's but **not re-tested live** after that change |
 
-Test count is **249 passing** at `f7d7f55`. If your count is lower, check you are on that
+Test count is **276 passing** at `c4a9149`. If your count is lower, check you are on that
 commit before assuming you broke something.
 
 Also stale and not to be trusted: `README.md`, `SESSION_SUMMARY.md`, `CHANGELOG.md` all
