@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
@@ -21,6 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\SNChat.BuildTools\SNChat.BuildTools.csproj" />
     <ProjectReference Include="..\SNChat.Core\SNChat.Core.csproj" />
     <ProjectReference Include="..\SNChat.LLM\SNChat.LLM.csproj" />
     <ProjectReference Include="..\SNChat.MCP\SNChat.MCP.csproj" />

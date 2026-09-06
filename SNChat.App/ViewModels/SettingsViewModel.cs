@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -161,6 +161,26 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private int _maxConversationsToKeep = 1000;
 
+    // Build tools. The allowed folders are edited as one per line, which suits a
+    // list that is usually one or two entries and occasionally hand-pasted.
+    [ObservableProperty]
+    private string _buildAllowedRoots = string.Empty;
+
+    [ObservableProperty]
+    private bool _buildAllowTests = true;
+
+    [ObservableProperty]
+    private int _buildTimeoutSeconds = 300;
+
+    [ObservableProperty]
+    private string _buildDotnetPath = "dotnet";
+
+    [ObservableProperty]
+    private string _buildCMakePath = string.Empty;
+
+    [ObservableProperty]
+    private string _buildMsBuildPath = string.Empty;
+
     [ObservableProperty]
     private bool _hasUnsavedChanges;
 
@@ -302,6 +322,13 @@ public partial class SettingsViewModel : ObservableObject
             DefaultProvider = settings.Defaults.DefaultProvider;
             DefaultModel = settings.Defaults.DefaultModel;
 
+            BuildAllowedRoots = string.Join(Environment.NewLine, settings.BuildTools.AllowedRoots);
+            BuildAllowTests = settings.BuildTools.AllowTests;
+            BuildTimeoutSeconds = settings.BuildTools.TimeoutSeconds;
+            BuildDotnetPath = settings.BuildTools.DotnetPath;
+            BuildCMakePath = settings.BuildTools.CMakePath;
+            BuildMsBuildPath = settings.BuildTools.MsBuildPath;
+
             AutoCompact = settings.Context.AutoCompact;
             CompactThresholdPercent = settings.Context.CompactThresholdPercent;
             KeepRecentMessages = settings.Context.KeepRecentMessages;
@@ -384,6 +411,24 @@ public partial class SettingsViewModel : ObservableObject
             // Clamped rather than trusted: these come from a text box, and a
             // threshold of 0 would compact after every single message while a
             // window of 0 would leave the meter with nothing to measure against.
+            // Blank lines and stray whitespace dropped: a trailing newline in the
+            // box would otherwise become an empty root, and an empty root would
+            // be a root that matches nothing while still switching the tools on.
+            settings.BuildTools.AllowedRoots = BuildAllowedRoots
+                .Split('\n')
+                .Select(line => line.Trim())
+                .Where(line => line.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            settings.BuildTools.AllowTests = BuildAllowTests;
+            settings.BuildTools.TimeoutSeconds = Math.Clamp(BuildTimeoutSeconds, 10, 3600);
+            settings.BuildTools.DotnetPath = string.IsNullOrWhiteSpace(BuildDotnetPath)
+                ? "dotnet"
+                : BuildDotnetPath.Trim();
+            settings.BuildTools.CMakePath = BuildCMakePath.Trim();
+            settings.BuildTools.MsBuildPath = BuildMsBuildPath.Trim();
+
             settings.Context.AutoCompact = AutoCompact;
             settings.Context.CompactThresholdPercent = Math.Clamp(CompactThresholdPercent, 10, 100);
             settings.Context.KeepRecentMessages = Math.Max(0, KeepRecentMessages);
@@ -458,6 +503,12 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnDefaultTopPChanged(double value) => HasUnsavedChanges = true;
     partial void OnDefaultProviderChanged(string value) => HasUnsavedChanges = true;
     partial void OnDefaultModelChanged(string value) => HasUnsavedChanges = true;
+    partial void OnBuildAllowedRootsChanged(string value) => HasUnsavedChanges = true;
+    partial void OnBuildAllowTestsChanged(bool value) => HasUnsavedChanges = true;
+    partial void OnBuildTimeoutSecondsChanged(int value) => HasUnsavedChanges = true;
+    partial void OnBuildDotnetPathChanged(string value) => HasUnsavedChanges = true;
+    partial void OnBuildCMakePathChanged(string value) => HasUnsavedChanges = true;
+    partial void OnBuildMsBuildPathChanged(string value) => HasUnsavedChanges = true;
     partial void OnAutoCompactChanged(bool value) => HasUnsavedChanges = true;
     partial void OnCompactThresholdPercentChanged(int value) => HasUnsavedChanges = true;
     partial void OnKeepRecentMessagesChanged(int value) => HasUnsavedChanges = true;

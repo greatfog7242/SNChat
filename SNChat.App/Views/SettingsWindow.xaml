@@ -430,6 +430,82 @@
                 </ScrollViewer>
             </TabItem>
 
+            <!-- Build tools: lets the model compile and test local projects -->
+            <TabItem Header="Build tools">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="20">
+                        <TextBlock Text="Build and Test Tools" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="#666666" Margin="0,0,0,12"
+                                   Text="Lets the assistant compile your projects and run their tests using the toolchains already installed - dotnet and MSBuild for Visual Studio work, the Gradle wrapper for Android Studio projects. It reads back the compiler errors, so it can fix a break and check the fix."/>
+
+                        <Border Background="#FFF3E0" BorderBrush="#FFB74D" BorderThickness="1"
+                                Padding="10" CornerRadius="4" Margin="0,0,0,15">
+                            <StackPanel>
+                                <TextBlock Text="Read this before adding a folder" FontWeight="SemiBold" FontSize="12" Margin="0,0,0,4"/>
+                                <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#555555">
+                                    Building a project runs that project's own scripts - MSBuild targets, build.gradle
+                                    and pre-build events all execute code. Running its tests executes the project's code
+                                    directly.<LineBreak/><LineBreak/>
+                                    This assistant also reads web search results and files from MCP servers, so text it
+                                    has been given could try to talk it into building something you did not intend. It
+                                    can only ever act inside the folders listed below, so list only projects you already
+                                    trust and would run yourself.
+                                </TextBlock>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="Project folders the assistant may build (one per line):" Margin="0,0,0,2"/>
+                        <TextBox Text="{Binding BuildAllowedRoots, UpdateSourceTrigger=PropertyChanged}"
+                                 AcceptsReturn="True"
+                                 TextWrapping="NoWrap"
+                                 MinHeight="80"
+                                 MaxHeight="160"
+                                 VerticalScrollBarVisibility="Auto"
+                                 HorizontalScrollBarVisibility="Auto"
+                                 FontFamily="Consolas, Courier New, monospace"
+                                 Padding="6,4"
+                                 Margin="0,0,0,4"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="0,0,0,15"
+                                   Text="Everything inside a listed folder is included. Leave this empty to switch the build tools off completely - which is the default, and while it is empty the tools are not offered to the model at all."/>
+
+                        <CheckBox Content="Allow running tests, not just building"
+                                  IsChecked="{Binding BuildAllowTests}"
+                                  Margin="0,0,0,4"/>
+                        <TextBlock Text="Separate from building because a test suite runs your project's own code, while compiling it does not."
+                                   FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="20,0,0,15"/>
+
+                        <TextBlock Text="Time limit per build or test run (seconds):" Margin="0,0,0,2"/>
+                        <TextBox Text="{Binding BuildTimeoutSeconds, UpdateSourceTrigger=PropertyChanged}"
+                                 Width="200"
+                                 HorizontalAlignment="Left"
+                                 Margin="0,0,0,4"/>
+                        <TextBlock Text="When it runs out the command and everything it started are stopped, so a hung build cannot hold the conversation open."
+                                   FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="0,0,0,15"/>
+
+                        <TextBlock Text="dotnet executable:" Margin="0,0,0,2"/>
+                        <TextBox Text="{Binding BuildDotnetPath, UpdateSourceTrigger=PropertyChanged}"
+                                 Margin="0,0,0,4"/>
+                        <TextBlock Text="Just 'dotnet' finds it on PATH. Give a full path if you have several SDKs and the wrong one is picked."
+                                   FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="0,0,0,15"/>
+
+                        <TextBlock Text="cmake executable (optional):" Margin="0,0,0,2"/>
+                        <TextBox Text="{Binding BuildCMakePath, UpdateSourceTrigger=PropertyChanged}"
+                                 Margin="0,0,0,4"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="0,0,0,15"
+                                   Text="Leave empty for the usual case. The PATH is searched first, then every Visual Studio installation - Visual Studio bundles cmake but does not put it on the PATH, so it is invisible to anything not started from a developer command prompt. Set a full path only to force a particular copy. ctest is taken from the same folder."/>
+
+                        <TextBlock Text="MSBuild.exe (optional):" Margin="0,0,0,2"/>
+                        <TextBox Text="{Binding BuildMsBuildPath, UpdateSourceTrigger=PropertyChanged}"
+                                 Margin="0,0,0,4"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="0,0,0,15"
+                                   Text="Leave empty to always use dotnet. Point this at Visual Studio's MSBuild.exe if your solutions include classic .NET Framework projects, which dotnet build cannot build. It usually sits under ...\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe"/>
+
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#999999"
+                                   Text="Android projects are built with the gradlew wrapper checked into the project, so Gradle itself does not need installing. Changes here take effect after a restart."/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
             <!-- Storage Settings Tab -->
             <TabItem Header="Storage">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">

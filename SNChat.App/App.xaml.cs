@@ -14,6 +14,7 @@ using SNChat.LLM.Providers.Ollama;
 using SNChat.LLM.Providers.FreeToken;
 using SNChat.LLM.Providers.OpenRouter;
 using SNChat.LLM.Services;
+using SNChat.BuildTools;
 using SNChat.Core.Tools;
 using SNChat.WebTools;
 using SNChat.WebTools.ImageSources;
@@ -135,6 +136,14 @@ public partial class App : Application
         });
         services.AddSingleton<ImageSearchTool>();
 
+        // Build and test tools for the toolchains already on the machine.
+        // Registered unconditionally, but they refuse to run until project
+        // folders are allowed in Settings - see BuildToolSettings.
+        services.AddSingleton<ProcessRunner>();
+        services.AddSingleton<ListProjectsTool>();
+        services.AddSingleton<BuildProjectTool>();
+        services.AddSingleton<RunTestsTool>();
+
         services.AddSingleton<IToolRegistry>(sp =>
         {
             var registry = new ToolRegistry(sp.GetRequiredService<ILogger<ToolRegistry>>());
@@ -154,6 +163,21 @@ public partial class App : Application
             // anyway - inventing Wikimedia URLs that are correctly formed and
             // point at nothing. Nothing else here can search for an image.
             registry.Register(sp.GetRequiredService<ImageSearchTool>());
+
+            // Build tools are registered only once folders have been allowed.
+            // Their definitions are sent with every request, so offering them
+            // while they can only ever refuse would spend context on nothing and
+            // invite the model to keep trying them.
+            var buildTools = sp.GetRequiredService<SettingsService>().GetCachedSettings().BuildTools;
+
+            if (buildTools.AllowedRoots.Count > 0)
+            {
+                registry.Register(sp.GetRequiredService<ListProjectsTool>());
+                registry.Register(sp.GetRequiredService<BuildProjectTool>());
+
+                if (buildTools.AllowTests)
+                    registry.Register(sp.GetRequiredService<RunTestsTool>());
+            }
 
             return registry;
         });

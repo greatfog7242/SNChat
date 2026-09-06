@@ -9,6 +9,64 @@ public class AppSettings
     public StorageSettings Storage { get; set; } = new();
     public ModeSettings Modes { get; set; } = new();
     public ContextSettings Context { get; set; } = new();
+    public BuildToolSettings BuildTools { get; set; } = new();
+}
+
+/// <summary>
+/// Lets the model build and test projects with the toolchains already installed
+/// - MSBuild and dotnet for Visual Studio work, Gradle for Android Studio.
+///
+/// Off until <see cref="AllowedRoots"/> names somewhere, and deliberately so.
+/// Building a project runs that project's own scripts: MSBuild targets,
+/// build.gradle and pre-build events all execute arbitrary code. Since this
+/// model also reads web results and files from MCP servers, text it has been fed
+/// can attempt to talk it into building something hostile. Confining it to
+/// folders named here by hand keeps the blast radius to projects already trusted.
+/// </summary>
+public class BuildToolSettings
+{
+    /// <summary>
+    /// Project folders the model may build in, including everything beneath
+    /// them. Empty - the default - turns the build tools off entirely rather
+    /// than allowing everything.
+    /// </summary>
+    public List<string> AllowedRoots { get; set; } = new();
+
+    /// <summary>
+    /// How long a single build or test run may take before it is stopped and its
+    /// process tree killed. A build that hangs would otherwise hold the turn open
+    /// indefinitely, and Gradle daemons keep running once orphaned.
+    /// </summary>
+    public int TimeoutSeconds { get; set; } = 300;
+
+    /// <summary>
+    /// Whether the model may run tests as well as build. Separate because a test
+    /// suite runs the project's own code, which a compile does not.
+    /// </summary>
+    public bool AllowTests { get; set; } = true;
+
+    /// <summary>
+    /// The dotnet executable. A bare name is looked up on PATH; give a full path
+    /// if several SDKs are installed and the wrong one is being found.
+    /// </summary>
+    public string DotnetPath { get; set; } = "dotnet";
+
+    /// <summary>
+    /// The cmake executable, for C/C++ projects. Empty is the normal case: the
+    /// PATH is searched, and then every Visual Studio installation, which is
+    /// where cmake usually turns out to be - Visual Studio bundles it but does
+    /// not add it to the PATH, so it is invisible to anything not launched from
+    /// a developer command prompt. Set a full path to override that search.
+    /// </summary>
+    public string CMakePath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// MSBuild.exe from a Visual Studio installation, used in preference to
+    /// dotnet for solutions that need the full framework - anything with a
+    /// classic .NET Framework project, which "dotnet build" cannot build.
+    /// Empty means always use dotnet.
+    /// </summary>
+    public string MsBuildPath { get; set; } = string.Empty;
 }
 
 /// <summary>
