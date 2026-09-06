@@ -1,4 +1,4 @@
-using System.Net.Http.Json;
+﻿using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
@@ -277,6 +277,21 @@ public class OllamaProvider : BaseLLMProvider
                     ToolName = toolName,
                     Content = result.Content
                 });
+
+                // Handed up so the app can keep it with the conversation. The
+                // copy above lives only for this request.
+                yield return new StreamChunk
+                {
+                    ToolExchange = new ToolExchange
+                    {
+                        Name = toolName,
+                        CallId = call.Id ?? string.Empty,
+                        Arguments = call.Function.Arguments.ValueKind == JsonValueKind.Undefined
+                            ? "{}"
+                            : call.Function.Arguments.GetRawText(),
+                        Result = result.Content
+                    }
+                };
             }
         }
     }
@@ -427,6 +442,27 @@ public class OllamaProvider : BaseLLMProvider
     private static Dictionary<string, object?> UnpackArguments(JsonElement arguments) =>
         ToolArgumentReader.Read(arguments);
 
+    /// <summary>
+    /// Stored arguments back as JSON. An empty object when they are missing or
+    /// unparseable, since a malformed call would be rejected outright and losing
+    /// the arguments of one historical call is better than losing the request.
+    /// </summary>
+    private static JsonElement ParseArgumentsElement(string arguments)
+    {
+        if (!string.IsNullOrWhiteSpace(arguments))
+        {
+            try
+            {
+                return JsonDocument.Parse(arguments).RootElement.Clone();
+            }
+            catch (JsonException)
+            {
+            }
+        }
+
+        return JsonDocument.Parse("{}").RootElement.Clone();
+    }
+
     private class StreamItem
     {
         public StreamChunk? Chunk { get; set; }
@@ -447,13 +483,47 @@ public class OllamaProvider : BaseLLMProvider
             });
         }
 
-        // Add conversation messages
-        messages.AddRange(request.Messages.Select(m => new OllamaMessage
+        foreach (var message in request.Messages)
         {
-            Role = m.Role.ToString().ToLowerInvariant(),
-            Content = m.Content,
-            Images = EncodeImages(m)
-        }));
+            // A stored tool exchange becomes the two messages it originally was:
+            // the assistant's call, then the result. Ollama pairs them by tool
+            // name, so no id is needed on the way back out.
+            if (message.IsToolExchange)
+            {
+                messages.Add(new OllamaMessage
+                {
+                    Role = "assistant",
+                    Content = string.Empty,
+                    ToolCalls = new List<OllamaToolCall>
+                    {
+                        new()
+                        {
+                            Function = new OllamaToolCallFunction
+                            {
+                                Name = message.ToolName,
+                                Arguments = ParseArgumentsElement(message.ToolArguments)
+                            }
+                        }
+                    }
+                });
+
+                messages.Add(new OllamaMessage
+                {
+                    Role = "tool",
+                    ToolName = message.ToolName,
+                    Content = message.Content
+                });
+
+                continue;
+            }
+
+            messages.Add(new OllamaMessage
+            {
+                Role = message.Role.ToString().ToLowerInvariant(),
+                Content = message.Content,
+                Images = EncodeImages(message)
+            });
+        }
 
         return new OllamaChatRequest
         {

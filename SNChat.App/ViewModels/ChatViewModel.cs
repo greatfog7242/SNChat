@@ -1071,6 +1071,15 @@ public partial class ChatViewModel : ObservableObject
                     continue;
                 }
 
+                // A tool that has just run. Kept with the conversation so a later
+                // turn can still see what it returned - the provider's own copy
+                // is discarded when this reply finishes.
+                if (chunk.ToolExchange != null)
+                {
+                    RecordToolExchange(chunk.ToolExchange, assistantMessage);
+                    continue;
+                }
+
                 if (!string.IsNullOrEmpty(chunk.Content))
                 {
                     StatusMessage = string.Empty;
@@ -1182,6 +1191,36 @@ public partial class ChatViewModel : ObservableObject
             // failed turn, both of which still added messages to the history.
             UpdateContextUsage();
         }
+    }
+
+    /// <summary>
+    /// Files a completed tool call into the conversation, before the reply that
+    /// follows from it.
+    ///
+    /// The assistant's message is already in the view list but is not added to
+    /// the conversation until the turn finishes, so inserting here keeps the two
+    /// in the order they happened: the calls, then the answer drawn from them.
+    /// </summary>
+    private void RecordToolExchange(ToolExchange exchange, Message assistantMessage)
+    {
+        var message = new Message
+        {
+            Role = MessageRole.Tool,
+            Content = exchange.Result,
+            Timestamp = DateTime.UtcNow,
+            ToolName = exchange.Name,
+            ToolCallId = exchange.CallId,
+            ToolArguments = exchange.Arguments
+        };
+
+        CurrentConversation?.Messages.Add(message);
+
+        // Placed before the reply being streamed, which is the last thing in the
+        // view list at this point.
+        var before = Messages.IndexOf(assistantMessage);
+        Messages.Insert(before < 0 ? Messages.Count : before, message);
+
+        _logger.LogDebug("Recorded tool exchange: {Tool}", exchange.Name);
     }
 
     public void LoadConversation(Conversation conversation)

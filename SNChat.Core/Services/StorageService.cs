@@ -219,7 +219,14 @@ public class StorageService : IStorageService
             var message = conversation.Messages[i];
 
             sb.AppendLine(MessageHeader.Format(i + 1, message));
-            sb.AppendLine(ConversationPaths.ReduceForStorage(message.Content, conversationDirectory));
+
+            // A tool exchange carries its call's arguments as well as its
+            // result, so the call can be rebuilt when the conversation is resent.
+            var body = message.IsToolExchange
+                ? ToolExchangeFormat.Write(message)
+                : message.Content;
+
+            sb.AppendLine(ConversationPaths.ReduceForStorage(body, conversationDirectory));
             sb.AppendLine();
         }
 
@@ -336,10 +343,19 @@ public class StorageService : IStorageService
             if (!MessageHeader.TryParse(header, out var role, out var timestamp, out var facts))
                 continue;
 
+            var resolved = ConversationPaths.ResolveForDisplay(messageContent, conversationDirectory);
+            var toolArguments = string.Empty;
+
+            if (role == MessageRole.Tool)
+                (toolArguments, resolved) = ToolExchangeFormat.Read(resolved);
+
             conversation.Messages.Add(new Message
             {
                 Role = role,
-                Content = ConversationPaths.ResolveForDisplay(messageContent, conversationDirectory),
+                Content = resolved,
+                ToolName = facts.ToolName,
+                ToolCallId = facts.ToolCallId,
+                ToolArguments = toolArguments,
                 Timestamp = timestamp,
                 Index = i,
                 Provider = facts.Provider,

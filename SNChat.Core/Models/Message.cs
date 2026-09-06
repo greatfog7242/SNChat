@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Runtime.CompilerServices;
 
 namespace SNChat.Core.Models;
@@ -129,9 +129,35 @@ public class Message : INotifyPropertyChanged
     /// </summary>
     public bool IsCompactionSummary { get; set; }
 
+    // A Role == Tool message records one complete exchange: what was called,
+    // with what, and what came back. Kept as a single message rather than an
+    // assistant/tool pair because that pairing is provider-specific - Ollama
+    // matches a result to its call by tool name and OpenAI by an id - and each
+    // provider expands this back into whichever shape it needs.
+
+    /// <summary>Which tool was called. Empty on any other kind of message.</summary>
+    public string ToolName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The id the model gave the call. OpenAI-shaped APIs reject a tool result
+    /// whose id does not match a call the assistant made, so it has to survive.
+    /// Ollama supplies none and does not need one.
+    /// </summary>
+    public string ToolCallId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The arguments as JSON, needed to rebuild the assistant's original call.
+    /// A tool result sent without the call that produced it is rejected outright
+    /// by OpenAI-shaped APIs.
+    /// </summary>
+    public string ToolArguments { get; set; } = string.Empty;
+
+    public bool IsToolExchange => Role == MessageRole.Tool;
+
     /// <summary>The heading on the message card, which says more than the role alone.</summary>
     public string RoleLabel =>
         IsCompactionSummary ? "Summary of earlier messages"
+        : IsToolExchange ? $"Tool · {ToolName}"
         : IsCompacted ? $"{Role} · compacted"
         : Role.ToString();
 
@@ -231,7 +257,10 @@ public class Message : INotifyPropertyChanged
             Provider = Provider,
             ModelName = ModelName,
             IsCompacted = IsCompacted,
-            IsCompactionSummary = IsCompactionSummary
+            IsCompactionSummary = IsCompactionSummary,
+            ToolName = ToolName,
+            ToolCallId = ToolCallId,
+            ToolArguments = ToolArguments
         };
     }
 }

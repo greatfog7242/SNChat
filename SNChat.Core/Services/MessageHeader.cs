@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text.RegularExpressions;
 using SNChat.Core.Models;
 
@@ -67,6 +67,15 @@ public static class MessageHeader
         // into the prompt beside the summary that replaced it - undoing the
         // compaction and double-counting it at the same time. Written only when
         // true, so ordinary messages carry nothing extra.
+        // A tool exchange has to keep enough to rebuild the call it came from:
+        // an OpenAI-shaped API rejects a result whose id matches no call the
+        // assistant made.
+        if (!string.IsNullOrEmpty(message.ToolName))
+            fields.Add($"tool={message.ToolName}");
+
+        if (!string.IsNullOrEmpty(message.ToolCallId))
+            fields.Add($"call={message.ToolCallId}");
+
         if (message.IsCompacted)
             fields.Add("compacted=true");
 
@@ -143,6 +152,12 @@ public static class MessageHeader
                     facts.Cost = decimal.TryParse(value, NumberStyles.Any,
                         CultureInfo.InvariantCulture, out var cost) ? cost : null;
                     break;
+                case "tool":
+                    facts.ToolName = value;
+                    break;
+                case "call":
+                    facts.ToolCallId = value;
+                    break;
                 case "compacted":
                     facts.IsCompacted = ParseBool(value);
                     break;
@@ -173,6 +188,12 @@ public class MessageFacts
     public int? CompletionTokens { get; set; }
     public int? ReasoningTokens { get; set; }
     public decimal? Cost { get; set; }
+
+    /// <summary>Which tool ran, on a tool exchange.</summary>
+    public string ToolName { get; set; } = string.Empty;
+
+    /// <summary>The id the model gave the call, where the provider uses one.</summary>
+    public string ToolCallId { get; set; } = string.Empty;
 
     /// <summary>Folded into a later summary, so no longer sent to the model.</summary>
     public bool IsCompacted { get; set; }
