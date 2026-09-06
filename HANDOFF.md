@@ -15,6 +15,7 @@ Working branch `cache-search-images`, **ahead of origin and not pushed**. Newest
 
 | Commit | What |
 |---|---|
+| `f7d7f55` | Python, Node, Maven and Ruby; scripts in `run_program`; Kotlin diagnostics |
 | `ef1a0f0` | Project picker in the toolbar and a Projects tab in Settings |
 | `95883e4` | `read_app_log`, `run_tests` filter, tool-name collision warning |
 | `5651b12` | Projects, and `run_program` — the assistant can run what it builds |
@@ -26,59 +27,37 @@ Working branch `cache-search-images`, **ahead of origin and not pushed**. Newest
 
 ## Uncommitted work in the tree
 
-Nothing. Everything is committed as of `ef1a0f0`.
+Nothing. Everything is committed as of `f7d7f55`.
 
 **Not yet pushed.** Run `git log --oneline origin/cache-search-images..HEAD` for what is
 pending — a fixed number written here goes stale the moment another commit lands.
 
 ## Where to pick up
 
-The **Foundation and Stage 1 are done**: projects exist, are selectable, and the assistant
-can build, test, run and read its own log inside them.
+Foundation and Stages 1 and 2 are done. The assistant can be pointed at a project and will
+build, test, run and debug in it across .NET, C++, Python, Node, Java and Android.
 
-**Next is Stage 2, languages.** Extend `ProjectKind` and `ProjectLocator.Identify` with
-marker-file detection, and add a table of build/run/test commands per kind — Python, Node/TS,
-Java, Rails, Kotlin/Android. Two things to design around rather than paper over: Android
-"run" means deploying to a device via adb, not launching a process, and a Rails server never
-exits, so it does not fit `run_program`'s run-to-completion model. Resolve interpreters
-through `ToolchainLocator.Resolve`, not bare names — they have the same off-PATH problem
-cmake had.
+**Next is Stage 3, rules and skills** (see `DEVELOPMENT_PLAN.md`):
 
-## Active plan
+- **Rules** — a third contributor to the system prompt, which today has exactly two
+  (mode prompt, then template prompt, joined by a blank line). Layer global rules, then a
+  `RULES.md` read from the project root, then mode, then template. While there, fix an
+  existing hole: the active system prompt is not persisted anywhere, so it is lost on
+  restart and when loading an old conversation.
+- **Skills** — `TemplateService` already stores markdown with YAML frontmatter and
+  `{{variables}}`, which is most of a skill system. Two gaps: its parser reads exactly seven
+  frontmatter keys and silently discards anything else, and only the *user* can invoke a
+  template — the model has no path to one. Add `invocable` to the frontmatter and expose a
+  single `use_skill` / `list_skills` pair rather than one tool per skill, since every tool
+  definition is sent on every request and the MCP tools already cost ~16k tokens.
 
-Full plan: `C:\Users\Xiaozhong Chen\.claude\plans\is-there-any-special-glittery-minsky.md`
-(outside the repo — copy anything durable back here).
-
-Goal: the app should **vibe code** — plan, compose, run, debug, iterate across languages,
-with user-defined rules, skills, subagents, and looping that is fully automatic or
-step-by-step approved **per project**.
-
-| Stage | Contents | Status |
-|---|---|---|
-| Foundation | `Project` model + `ProjectService`, `Conversation.ProjectId`, project selector UI, folder picker | **done** |
-| 1 | `run_program` (+stdin/args), `run_tests` filter, `read_app_log`, `ProcessRunner` stdin/stderr | **done** — all five tools registered and verified in the running app |
-| 2 | Python, Node/TS, Java, Rails, Kotlin/Android toolchains | not started |
-| 3 | Rules (`RULES.md` per project) + model-invocable skills | not started |
-| 4 | Autonomous loop, `task_complete`, git checkpoint, budgets | not started |
-| 5 | Subagents with their own context | not started |
-
-Three constraints discovered while planning, which shape the work:
-
-1. **The model cannot run what it builds.** `ProcessRunner` is the only process launcher a
-   tool can reach, and the executable always comes from settings or `ToolchainLocator` —
-   never from the model. This is why it keeps asking the user to paste output back.
-2. **There is no project concept.** `AllowedRoots` is a global permission list;
-   `Conversation` has no folder field. "Per project" anything requires inventing Projects.
-3. **Tool calls and results are never persisted.** Both providers build the tool transcript
-   inside one `GenerateStreamAsync` call and discard it; `MessageRole` is only
-   `User, Assistant, System`. A turn-to-turn loop would forget what its own tools returned.
-   Stage 4 must add `MessageRole.Tool` + storage *before* the loop is useful.
+Still unverifiable on this machine: Maven and Ruby/Rails, neither being installed.
 
 ## Commands that matter
 
 ```bash
 dotnet build SNChat.slnx
-dotnet test SNChat.Tests/SNChat.Tests.csproj      # 227 passing as of 2026-09-06
+dotnet test SNChat.Tests/SNChat.Tests.csproj      # 249 passing as of 2026-09-06
 
 # Publish: single file. IncludeNativeLibrariesForSelfExtract is NOT optional -
 # without it five native WPF DLLs land beside the exe and it is not single-file.
@@ -133,13 +112,17 @@ the real thing, because more than one bug this week survived a green build.
 | C++ / CMake / MSVC | **Verified** end-to-end, including with the registry-only PATH and with a real `C3861` error |
 | Visual Studio tool discovery (`ToolchainLocator`) | **Verified** — resolves cmake from the VS install with cmake absent from PATH |
 | Ollama context length from `/api/show` | **Verified** against all three installed models |
+| Python build/run (compileall, script + args + stdin) | **Verified** against real Python 3.14 |
+| Node detection + npm resolution | **Verified** — npm resolves as `npm.cmd` |
+| Java lookup via `JAVA_HOME` | **Verified** — JDK 21 found with `java` absent from PATH |
+| **Maven, Ruby/Rails** | **NEVER RUN.** Neither `mvn` nor `ruby` is installed here; commands written to spec |
 | Tool argument arrays (`ToolArgumentReader`) | **Verified** — probed the real MCP server, and asserted the JSON-RPC payload shape |
 | `run_program` / stdin / arguments | **Verified** — real MSVC-built C++ programs run, stdin fed and drained, args with spaces preserved |
-| **Gradle / Kotlin / Android** | **NEVER RUN.** Written to spec only. `C:\ai-playground\AndroidFileFinder` is a real Gradle project to test against. Expect the same class of problem cmake had |
+| **Gradle / Kotlin / Android** | **Verified** — `gradlew assembleDebug` builds AndroidFileFinder using the Android Studio JBR via `JAVA_HOME`; a deliberate Kotlin error was captured and is now parsed |
 | `GoogleWebSource` / `GoogleImageSource` | Complete and wired, **never exercised** against a successful response — the API appears closed to new projects |
 | OpenRouter provider | Argument handling fixed alongside Ollama's but **not re-tested live** after that change |
 
-Test count is **227 passing** at `95883e4`. If your count is lower, check you are on that
+Test count is **249 passing** at `f7d7f55`. If your count is lower, check you are on that
 commit before assuming you broke something.
 
 Also stale and not to be trusted: `README.md`, `SESSION_SUMMARY.md`, `CHANGELOG.md` all
@@ -466,6 +449,14 @@ in the streaming overlay (status chunks are shown but never persisted).
 ### Non-obvious findings (worth not rediscovering)
 
 #### From 2026-09-05/06 (context meter, build tools, tool arguments)
+
+**The Kotlin compiler's diagnostics look like nothing else.** A real Android build prints
+`e: file:///C:/app/src/.../Thing.kt:6:17 Unresolved reference 'foo'.` — a bare `e:` instead
+of the word error, a `file://` URI instead of a path, and no colon before the message. None
+of the existing patterns matched it, so every Kotlin error was invisible and the model was
+told only that the build failed. Found by adding a deliberately broken file to
+`AndroidFileFinder` and reading the real output; there is now a test using that exact line.
+Paths are percent-decoded, since any project under a folder with a space arrives with %20.
 
 **Visual Studio bundles cmake, ctest, ninja and MSBuild and puts none of them on the
 PATH.** A developer command prompt adds them, so they look installed when you check from
