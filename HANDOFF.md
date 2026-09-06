@@ -1,11 +1,134 @@
 # SNChat Implementation Status
 
-**Last Updated**: 2026-08-30 19:10 UTC  
-**Phase 1 Status**: ✅ COMPLETE  
-**Phase 2 Status**: ✅ COMPLETE (app icon deferred)  
-**Bonus**: Tool calling with web + image search (unplanned, delivered early)  
-**Next**: Phase 3, Phase 5 (RAG - blocked on Ollama embeddings), or hardening  
+**Last Updated**: 2026-09-06  
+**Phase 1 / Phase 2**: ✅ COMPLETE (history below, from 2026-08-30)  
+**Current work**: turning the app into a coding agent — see "Where things stand" next  
 **Repository**: https://github.com/greatfog7242/SNChat
+
+---
+
+# Where things stand (read this first)
+
+## Branch and commits
+
+Working branch `cache-search-images`, **two commits ahead of origin**. Newest first:
+
+| Commit | What |
+|---|---|
+| `5651b12` | Projects, and `run_program` — the assistant can run what it builds |
+| `2e88414` | Tool arguments keep their shape (fixed `edit_file` failing 100% of the time) |
+| `78af4eb` | Build and test tools (`list_projects`, `build_project`, `run_tests`) |
+| `8b87192` | Drag a group header to reorder it, click to fold |
+| `22f7a96` | Context window meter + auto-compaction |
+| `d7f99d8` | Per-mode standing instructions (Chat/Coding/Scientific) |
+
+## Uncommitted work in the tree
+
+Nothing. Everything below is committed as of `5651b12`.
+
+**Not yet pushed** — the branch is ahead of `origin/cache-search-images` by two commits.
+
+## Active plan
+
+Full plan: `C:\Users\Xiaozhong Chen\.claude\plans\is-there-any-special-glittery-minsky.md`
+(outside the repo — copy anything durable back here).
+
+Goal: the app should **vibe code** — plan, compose, run, debug, iterate across languages,
+with user-defined rules, skills, subagents, and looping that is fully automatic or
+step-by-step approved **per project**.
+
+| Stage | Contents | Status |
+|---|---|---|
+| Foundation | `Project` model + `ProjectService`, `Conversation.ProjectId`, project selector UI, folder picker | **in progress** — model/service/permissions done, UI not started |
+| 1 | `run_program` (+stdin/args), `run_tests` filter, `read_app_log`, `ProcessRunner` stdin/stderr | **in progress** — `run_program` + `ProcessRunner` done and verified against real programs; `run_tests` filter and `read_app_log` not started |
+| 2 | Python, Node/TS, Java, Rails, Kotlin/Android toolchains | not started |
+| 3 | Rules (`RULES.md` per project) + model-invocable skills | not started |
+| 4 | Autonomous loop, `task_complete`, git checkpoint, budgets | not started |
+| 5 | Subagents with their own context | not started |
+
+Three constraints discovered while planning, which shape the work:
+
+1. **The model cannot run what it builds.** `ProcessRunner` is the only process launcher a
+   tool can reach, and the executable always comes from settings or `ToolchainLocator` —
+   never from the model. This is why it keeps asking the user to paste output back.
+2. **There is no project concept.** `AllowedRoots` is a global permission list;
+   `Conversation` has no folder field. "Per project" anything requires inventing Projects.
+3. **Tool calls and results are never persisted.** Both providers build the tool transcript
+   inside one `GenerateStreamAsync` call and discard it; `MessageRole` is only
+   `User, Assistant, System`. A turn-to-turn loop would forget what its own tools returned.
+   Stage 4 must add `MessageRole.Tool` + storage *before* the loop is useful.
+
+## Commands that matter
+
+```bash
+dotnet build SNChat.slnx
+dotnet test SNChat.Tests/SNChat.Tests.csproj      # 211 passing as of 2026-09-06
+
+# Publish: single file. IncludeNativeLibrariesForSelfExtract is NOT optional -
+# without it five native WPF DLLs land beside the exe and it is not single-file.
+# Close the running app first; it locks publish\SNChat.App.exe.
+dotnet publish SNChat.App/SNChat.App.csproj -c Release -r win-x64 \
+  --self-contained true -p:PublishSingleFile=true \
+  -p:IncludeNativeLibrariesForSelfExtract=true -o publish
+```
+
+**Run the test suite with the registry-only PATH**, not from a developer command prompt —
+the latter hides an entire class of bug (see the Visual Studio finding below):
+
+```powershell
+powershell -NoProfile -Command "$env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User'); dotnet test SNChat.Tests/SNChat.Tests.csproj"
+```
+
+## Conventions in this repo
+
+- **Tests**: xUnit, prose sentence names (`A_compacted_message_is_still_compacted_when_it_is_read_back`).
+  Comments say *why* the case matters, not what the code does.
+- **Comments**: explain the reason and the failure that motivated the code. See
+  `WorkspaceGuard.cs` or `ContextMeter.cs` for the house style.
+- **Commits**: one feature each, a descriptive sentence in the imperative
+  ("Let the assistant build and test your own projects"), body explains the non-obvious
+  parts. End with `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
+- **Settings** live in `%APPDATA%\SNChat\config\settings.json`; conversations are markdown
+  with YAML frontmatter under `%APPDATA%\SNChat\conversations`.
+
+## Environment facts for this machine
+
+- Ollama at `localhost:11434`; models `orcarouter/Qwen3.8-27B-Uncensored:latest` (262144
+  context), `qwen2.5:7b` (32768), `gemma4:latest` (131072).
+- Visual Studio 18 Community **and** Build Tools are both installed. `cmake`, `ctest`,
+  `ninja` and `MSBuild` live inside them and are **not on the PATH**.
+- `JAVA_HOME` is set persistently (machine and user) to Android Studio's bundled JBR;
+  `java` is **not** on the PATH. Gradle should inherit it without discovery.
+- MCP servers are hand-configured in settings.json: filesystem scoped to `C:\ai-playground`,
+  and searxng at `localhost:8888`. ~19 MCP tools, costing roughly 16k prompt tokens.
+- Test projects in `C:\ai-playground`: `well_done` (C++/CMake), `FolderTree` (.NET),
+  `AndroidFileFinder` (real Gradle/Kotlin project, useful for testing the untested Android path).
+- Several conversation files under `conversations\2026-08\` are corrupt (bad YAML, missing
+  `created`) and log warnings on every load. Pre-existing, harmless, noisy.
+
+## What is verified, and what is only written to spec
+
+Do not trust "it compiles" as evidence. This list says what has actually been run against
+the real thing, because more than one bug this week survived a green build.
+
+| Path | State |
+|---|---|
+| .NET build/test (`dotnet build`, `dotnet test`) | **Verified** — real builds, including a deliberate `CS0103` parsed back with file and line |
+| C++ / CMake / MSVC | **Verified** end-to-end, including with the registry-only PATH and with a real `C3861` error |
+| Visual Studio tool discovery (`ToolchainLocator`) | **Verified** — resolves cmake from the VS install with cmake absent from PATH |
+| Ollama context length from `/api/show` | **Verified** against all three installed models |
+| Tool argument arrays (`ToolArgumentReader`) | **Verified** — probed the real MCP server, and asserted the JSON-RPC payload shape |
+| `run_program` / stdin / arguments | **Verified** — real MSVC-built C++ programs run, stdin fed and drained, args with spaces preserved |
+| **Gradle / Kotlin / Android** | **NEVER RUN.** Written to spec only. `C:\ai-playground\AndroidFileFinder` is a real Gradle project to test against. Expect the same class of problem cmake had |
+| `GoogleWebSource` / `GoogleImageSource` | Complete and wired, **never exercised** against a successful response — the API appears closed to new projects |
+| OpenRouter provider | Argument handling fixed alongside Ollama's but **not re-tested live** after that change |
+
+Test count is **211 passing** at `5651b12`. If your count is lower, check you are on that
+commit before assuming you broke something.
+
+Also stale and not to be trusted: `README.md`, `SESSION_SUMMARY.md`, `CHANGELOG.md` all
+date to 2026-08-30. In this file, trust the section you are reading plus
+*"Non-obvious findings"*; everything from *"Quick Start (historical)"* onward is history.
 
 ## Completed Work
 
@@ -326,6 +449,62 @@ in the streaming overlay (status chunks are shown but never persisted).
 
 ### Non-obvious findings (worth not rediscovering)
 
+#### From 2026-09-05/06 (context meter, build tools, tool arguments)
+
+**Visual Studio bundles cmake, ctest, ninja and MSBuild and puts none of them on the
+PATH.** A developer command prompt adds them, so they look installed when you check from
+one — but the app is launched from Explorer and inherits the plain registry PATH, where a
+bare `cmake` fails with "the system cannot find the file specified" on a machine that
+plainly has CMake. `ToolchainLocator` resolves: explicit setting → PATH → every Visual
+Studio installation. **Use `vswhere -all`, never `-latest`**: on this machine `-latest`
+returns the Build Tools install, not the Community one. The compiler needs no such help —
+CMake's Visual Studio generator locates MSVC through the installation, so a build works
+with no developer environment once cmake itself is found (verified with the registry-only
+PATH). Corollary: **always run the test suite with the registry-only PATH**, or this whole
+class of bug is invisible.
+
+**Tool arguments that are arrays or objects were flattened to strings.** Both providers
+unpacked model tool-call arguments with `_ => property.Value.GetRawText()`, so an array
+arrived at the tool as a *string of JSON*. The MCP filesystem server answers
+`-32602 Invalid input: expected array, received string at edits`, so `edit_file` failed
+**100% of the time** while every tool taking only scalars worked perfectly. That pattern
+reads exactly like a model too weak to use the tool — it is not. A 100% failure rate is
+structural; model weakness fails intermittently. Fixed in
+`SNChat.LLM/Providers/Base/ToolArgumentReader.cs`. Note the related trap in the same code:
+`TryGetInt64(out var l) ? l : GetDouble()` has common type `double`, so whole numbers get
+widened — an explicit `(object)` cast is required.
+
+**MCP `edit_file` is forgiving, so a rejection usually means a shape problem.** Probed
+directly: wrong indentation, trailing whitespace, and either line ending are all accepted.
+It only refuses when `oldText` genuinely is not in the file. So if edits fail, suspect the
+argument shape before suspecting the model's copying.
+
+**Ollama's model list reported a hardcoded 4096 context for every model.** The real length
+comes from `POST /api/show`, under `model_info` at a key ending `.context_length` (the
+prefix is the architecture, e.g. `qwen35.context_length`). On this machine that is 262144
+versus the hardcoded 4096 — a 64× error, which drove the context meter to 100% on the first
+message and triggered a needless compaction. `num_ctx` is now also settable, which pins
+what Ollama actually serves so the meter and the request agree.
+
+**Tool definitions dominate the prompt.** Nineteen MCP tools cost ~16k tokens against ~130
+for the message that prompted them. Any context estimate that ignores them reads near zero
+until the provider's first real count arrives, then jumps to full. `TokenEstimator.EstimateTools`
+counts them; they must **not** be added on top of a provider-measured prompt, which already
+includes them.
+
+**`ConversationMetadata.CustomData` is never serialised.** It exists on the model but
+`StorageService.GenerateMarkdown` does not write it, so anything put there is silently lost.
+Add real frontmatter fields instead.
+
+**`ToolRegistry.Register` is last-write-wins on a case-insensitive name, and MCP tools
+register *after* the built-ins.** An MCP server exposing `build_project` would silently
+shadow ours with no warning.
+
+**A cancelled turn diverges the two message collections.** `ChatViewModel` adds the
+assistant message to `Messages` (the view) immediately, but to
+`CurrentConversation.Messages` only on success. After a cancel the view has a message the
+conversation does not, and it is never saved.
+
 **Nested scroll viewers block the mouse wheel.** Every message renders a
 MarkdownViewer, which contains its own FlowDocumentScrollViewer > ScrollViewer.
 That inner scroller marks the bubbling MouseWheel event handled, so the message
@@ -443,7 +622,11 @@ signal there; judge by payload.
 - Keyboard shortcuts (Ctrl+N for new, Ctrl+F for search)
 - Add tooltips and help text
 
-## Quick Start for Next Session
+## Quick Start (historical — written 2026-08-30, kept for the architecture notes)
+
+> Superseded. For current commands, state and next steps see
+> **"Where things stand (read this first)"** at the top of this file. The task suggestions
+> in this section refer to Phase 2 work that has since shipped.
 
 ### Build the Solution
 ```bash
