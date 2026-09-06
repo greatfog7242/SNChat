@@ -430,6 +430,79 @@
                 </ScrollViewer>
             </TabItem>
 
+            <!-- Rules and skills: how the assistant is briefed, and what
+                 procedures it may reach for on its own -->
+            <TabItem Header="Rules &amp; skills">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="20">
+                        <TextBlock Text="Rules" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="#666666" Margin="0,0,0,12"
+                                   Text="Standing instructions sent ahead of every message. These apply everywhere; a project can add its own on the Projects tab, and those come after these so they win where the two disagree. Kept as RULES.md files, so you can also edit them in an editor."/>
+
+                        <TextBox Text="{Binding GlobalRules, UpdateSourceTrigger=PropertyChanged}"
+                                 AcceptsReturn="True" TextWrapping="Wrap"
+                                 MinHeight="120" MaxHeight="220"
+                                 VerticalScrollBarVisibility="Auto"
+                                 Padding="8,6"
+                                 Margin="0,0,0,6"/>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                            <Button Content="Save rules" Command="{Binding SaveGlobalRulesCommand}"
+                                    Padding="15,6" Margin="0,0,10,0"/>
+                            <TextBlock Text="{Binding RulesStatus}" FontSize="11" Foreground="#666666"
+                                       TextWrapping="Wrap" VerticalAlignment="Center" MaxWidth="380"/>
+                        </StackPanel>
+
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#B26500" Margin="0,0,0,20"
+                                   Text="Rules are sent with every single message, so they are a standing cost against the context window rather than a one-off. Keep them short; anything very long is truncated."/>
+
+                        <Separator Margin="0,0,0,15"/>
+
+                        <TextBlock Text="Skills" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="#666666" Margin="0,0,0,12"
+                                   Text="A skill is a prompt template the assistant may look up and follow by itself, rather than one you insert by hand. Tick the templates you want it to be able to reach for."/>
+
+                        <Border BorderBrush="#DDDDDD" BorderThickness="1" CornerRadius="4"
+                                Padding="8" Margin="0,0,0,8">
+                            <ScrollViewer Height="160" VerticalScrollBarVisibility="Auto">
+                                <ItemsControl ItemsSource="{Binding SkillCandidates}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="2,3">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <CheckBox Grid.Column="0"
+                                                          IsChecked="{Binding Invocable}"
+                                                          Content="{Binding Name}"
+                                                          VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="1"
+                                                           Text="{Binding Description}"
+                                                           FontSize="10" Foreground="#999999"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           VerticalAlignment="Center"
+                                                           Margin="10,0,0,0"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </Border>
+
+                        <StackPanel Orientation="Horizontal">
+                            <Button Content="Save skills" Command="{Binding SaveSkillsCommand}"
+                                    Padding="15,6" Margin="0,0,10,0"/>
+                            <TextBlock Text="{Binding SkillStatus}" FontSize="11" Foreground="#666666"
+                                       TextWrapping="Wrap" VerticalAlignment="Center" MaxWidth="380"/>
+                        </StackPanel>
+
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="0,10,0,0"
+                                   Text="Every skill is named in a tool description sent with every request, so tick only the ones worth offering. Templates themselves are edited as files under %APPDATA%\SNChat\templates, and via the template picker (Ctrl+T)."/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
             <!-- Projects: the folders the assistant may work in -->
             <TabItem Header="Projects">
                 <Grid Margin="20">
@@ -491,6 +564,23 @@
                                           Margin="0,0,0,4"/>
                                 <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="20,0,0,12"
                                            Text="Unattended work that writes files and runs programs needs a way back, and git is the way back that already exists. With this on, an automatic run will not start in a folder that is not a clean repository."/>
+
+                                <TextBlock Text="Rules for this project:" Margin="0,0,0,2"/>
+                                <TextBox Text="{Binding ProjectRules, UpdateSourceTrigger=PropertyChanged}"
+                                         AcceptsReturn="True" TextWrapping="Wrap"
+                                         MinHeight="70" MaxHeight="140"
+                                         VerticalScrollBarVisibility="Auto"
+                                         Margin="0,0,0,4"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                    <Button Content="Save project rules"
+                                            Command="{Binding SaveProjectRulesCommand}"
+                                            Padding="12,4" Margin="0,0,10,0"/>
+                                    <TextBlock Text="{Binding RulesStatus}" FontSize="11"
+                                               Foreground="#666666" TextWrapping="Wrap"
+                                               VerticalAlignment="Center" MaxWidth="280"/>
+                                </StackPanel>
+                                <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="0,0,0,12"
+                                           Text="Sent with every message while working in this project, after the rules that apply everywhere. Saved as RULES.md in the project folder, so it can be committed with the code it describes."/>
 
                                 <TextBlock Text="Notes:" Margin="0,0,0,2"/>
                                 <TextBox Text="{Binding SelectedProject.Notes, UpdateSourceTrigger=PropertyChanged}"

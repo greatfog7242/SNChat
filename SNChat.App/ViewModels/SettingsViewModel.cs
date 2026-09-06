@@ -31,6 +31,8 @@ public partial class SettingsViewModel : ObservableObject
     private readonly SettingsService _settingsService;
     private readonly OpenRouterProvider _openRouter;
     private readonly ProjectService _projectService;
+    private readonly RulesService _rules;
+    private readonly TemplateService _templates;
     private readonly ILogger<SettingsViewModel> _logger;
 
     /// <summary>Every tool-capable model, kept so filtering does not refetch.</summary>
@@ -200,8 +202,28 @@ public partial class SettingsViewModel : ObservableObject
 
     public bool HasSelectedProject => SelectedProject != null;
 
-    partial void OnSelectedProjectChanged(Project? value) =>
+    partial void OnSelectedProjectChanged(Project? value)
+    {
         OnPropertyChanged(nameof(HasSelectedProject));
+        LoadProjectRules();
+    }
+
+    // Rules and skills. Rules are files rather than settings, so they are
+    // loaded and saved directly rather than through the Save button.
+    [ObservableProperty]
+    private string _globalRules = string.Empty;
+
+    [ObservableProperty]
+    private string _projectRules = string.Empty;
+
+    [ObservableProperty]
+    private string _rulesStatus = string.Empty;
+
+    [ObservableProperty]
+    private ObservableCollection<PromptTemplate> _skillCandidates = new();
+
+    [ObservableProperty]
+    private string _skillStatus = string.Empty;
 
     [ObservableProperty]
     private bool _hasUnsavedChanges;
@@ -216,16 +238,22 @@ public partial class SettingsViewModel : ObservableObject
         OpenRouterProvider openRouter,
         ILLMProviderFactory providerFactory,
         ProjectService projectService,
+        RulesService rules,
+        TemplateService templates,
         ILogger<SettingsViewModel> logger)
     {
         _settingsService = settingsService;
         _openRouter = openRouter;
         _projectService = projectService;
+        _rules = rules;
+        _templates = templates;
         _logger = logger;
         ProviderOptions = providerFactory.GetAvailableProviders().ToList();
 
         _ = LoadSettingsAsync();
         _ = LoadProjectsAsync();
+        _ = LoadSkillsAsync();
+        LoadGlobalRules();
     }
 
     private async Task LoadProjectsAsync()
@@ -304,6 +332,134 @@ public partial class SettingsViewModel : ObservableObject
         {
             _logger.LogError(ex, "Could not save project {Name}", SelectedProject.Name);
             ProjectStatus = $"Could not save: {ex.Message}";
+        }
+    }
+
+    // --- Rules ---
+    //
+    // Read and written as files rather than through settings.json, so they can
+    // also be edited in a real editor and, for a project, committed with the
+    // code they describe.
+
+    private void LoadGlobalRules() =>
+        GlobalRules = ReadRules(_rules.GlobalRulesPath);
+
+    private void LoadProjectRules() =>
+        ProjectRules = SelectedProject == null
+            ? string.Empty
+            : ReadRules(ProjectRulesPath(SelectedProject));
+
+    private static string ProjectRulesPath(Project project) =>
+        Path.Combine(project.RootPath, RulesService.RulesFileName);
+
+    private string ReadRules(string path)
+    {
+        try
+        {
+            return File.Exists(path) ? File.ReadAllText(path) : string.Empty;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            RulesStatus = $"Could not read {path}: {ex.Message}";
+            return string.Empty;
+        }
+    }
+
+    [RelayCommand]
+    private void SaveGlobalRules() =>
+        WriteRules(_rules.GlobalRulesPath, GlobalRules, "Rules that apply everywhere");
+
+    [RelayCommand]
+    private void SaveProjectRules()
+    {
+        if (SelectedProject == null)
+            return;
+
+        if (!SelectedProject.RootExists)
+        {
+            RulesStatus = "That project's folder no longer exists, so its rules cannot be saved.";
+            return;
+        }
+
+        WriteRules(ProjectRulesPath(SelectedProject), ProjectRules,
+            $"Rules for {SelectedProject.Name}");
+    }
+
+    private void WriteRules(string path, string text, string what)
+    {
+        try
+        {
+            // Blank rules mean no rules. Deleting the file rather than leaving an
+            // empty one keeps "there are none" as the plain state on disk.
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                if (File.Exists(path))
+                    File.Delete(path);
+
+                RulesStatus = $"{what}: removed.";
+                return;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, text.Trim());
+
+            RulesStatus = text.Length > RulesService.MaxCharacters
+                ? $"{what}: saved, but it is over {RulesService.MaxCharacters} characters and " +
+                  "will be truncated. Rules are sent with every message."
+                : $"{what}: saved. It applies from your next message.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not write rules to {Path}", path);
+            RulesStatus = $"Could not save: {ex.Message}";
+        }
+    }
+
+    // --- Skills ---
+
+    private async Task LoadSkillsAsync()
+    {
+        try
+        {
+            SkillCandidates = new ObservableCollection<PromptTemplate>(
+                await _templates.LoadAllAsync());
+
+            var invocable = SkillCandidates.Count(t => t.Invocable);
+
+            SkillStatus = SkillCandidates.Count == 0
+                ? "No templates yet. A skill is a template the assistant may invoke itself."
+                : $"{invocable} of {SkillCandidates.Count} template(s) offered to the assistant.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not load templates");
+            SkillStatus = $"Could not load templates: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Writes back which templates the assistant may invoke. Saved on demand
+    /// rather than per tick, so ticking several is one write each rather than a
+    /// file rewrite per click.
+    /// </summary>
+    [RelayCommand]
+    private async Task SaveSkillsAsync()
+    {
+        try
+        {
+            foreach (var template in SkillCandidates)
+                await _templates.SaveAsync(template);
+
+            var invocable = SkillCandidates.Count(t => t.Invocable);
+
+            SkillStatus = invocable == 0
+                ? "Saved. No skills are offered, so the skill tools will not be registered."
+                : $"Saved. {invocable} skill(s) offered. Restart for the change to take effect.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not save templates");
+            SkillStatus = $"Could not save: {ex.Message}";
         }
     }
 

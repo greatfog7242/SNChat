@@ -188,6 +188,8 @@ public class StorageService : IStorageService
             parent_branch = conversation.ParentBranchId,
             branch_point = conversation.BranchPoint,
             project = conversation.ProjectId,
+            system_prompt = conversation.SystemPrompt,
+            template = conversation.TemplateName,
             tags = conversation.Metadata.Tags,
             total_prompt_tokens = conversation.Metadata.TotalPromptTokens,
             total_completion_tokens = conversation.Metadata.TotalCompletionTokens,
@@ -261,6 +263,12 @@ public class StorageService : IStorageService
 
         if (frontmatter.ContainsKey("branch_point"))
             conversation.BranchPoint = Convert.ToInt32(frontmatter["branch_point"]);
+
+        if (frontmatter.ContainsKey("system_prompt"))
+            conversation.SystemPrompt = frontmatter["system_prompt"]?.ToString() ?? string.Empty;
+
+        if (frontmatter.ContainsKey("template"))
+            conversation.TemplateName = frontmatter["template"]?.ToString() ?? string.Empty;
 
         // Absent from anything saved before projects existed, so it is read only
         // when present and otherwise leaves the conversation unattached.

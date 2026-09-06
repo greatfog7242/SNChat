@@ -778,8 +778,28 @@ public partial class ChatViewModel : ObservableObject
             OnPropertyChanged(nameof(HasSystemPrompt));
         }
 
+        // Kept with the conversation, so it survives a restart and comes back
+        // when the conversation is reopened. It used to live only here, which
+        // meant a conversation quietly carried on without the instructions it
+        // had been started under.
+        RememberTemplateOnConversation();
+
         _logger.LogInformation("Applied template {Name} (system prompt: {HasSystem})",
             templateName, !string.IsNullOrWhiteSpace(systemPrompt));
+    }
+
+    /// <summary>
+    /// Writes the active template's prompt onto the conversation and saves it.
+    /// </summary>
+    private void RememberTemplateOnConversation()
+    {
+        if (CurrentConversation == null)
+            return;
+
+        CurrentConversation.SystemPrompt = SystemPrompt;
+        CurrentConversation.TemplateName = ActiveTemplateName;
+
+        _ = SaveConversationAsync();
     }
 
     [RelayCommand]
@@ -788,6 +808,8 @@ public partial class ChatViewModel : ObservableObject
         SystemPrompt = string.Empty;
         ActiveTemplateName = string.Empty;
         OnPropertyChanged(nameof(HasSystemPrompt));
+
+        RememberTemplateOnConversation();
     }
 
     [RelayCommand]
@@ -962,6 +984,10 @@ public partial class ChatViewModel : ObservableObject
             // something, and re-picking the project every time would be tedious
             // enough to be got wrong.
             ProjectId = IsRealProject(CurrentProject) ? CurrentProject!.Id : null,
+            // Carried over for the same reason as the project: starting a fresh
+            // chat mid-task is usually still the same task.
+            SystemPrompt = SystemPrompt,
+            TemplateName = ActiveTemplateName,
             Metadata = new ConversationMetadata
             {
                 ModelName = CurrentModel,
@@ -1191,6 +1217,12 @@ public partial class ChatViewModel : ObservableObject
         UpdateConversationTokenSummary();
         ResetContextMeasurement();
         ApplyProjectFromConversation();
+
+        // Put back the standing instruction this conversation was being held
+        // under, rather than leaving whatever the previous one used.
+        SystemPrompt = conversation.SystemPrompt;
+        ActiveTemplateName = conversation.TemplateName;
+        OnPropertyChanged(nameof(HasSystemPrompt));
 
         _logger.LogInformation("Loaded conversation: {Title} with {Count} messages",
             conversation.Title, conversation.Messages.Count);
