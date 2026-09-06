@@ -5,6 +5,7 @@ using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
+using SNChat.BuildTools;
 using SNChat.Core.Interfaces;
 using SNChat.Core.Models;
 using SNChat.Core.Services;
@@ -27,6 +28,16 @@ public partial class ChatViewModel : ObservableObject
     private readonly ProjectService _projectService;
     private readonly ProjectContext _projectContext;
     private readonly RulesService _rules;
+    private readonly AgentSignals _signals;
+    private readonly GitCheckpointService _checkpoints;
+
+    /// <summary>
+    /// Why the last turn ended. The cancellation token source is disposed and
+    /// nulled in GenerateResponseAsync's finally, so by the time a loop asks
+    /// there is nothing left to inspect - these survive on purpose.
+    /// </summary>
+    private bool _lastTurnCancelled;
+    private bool _lastTurnFailed;
     private readonly ILogger<ChatViewModel> _logger;
 
     /// <summary>
@@ -163,6 +174,21 @@ public partial class ChatViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _isCompacting;
+
+    /// <summary>
+    /// True for the whole of an automatic run, across all of its turns. Distinct
+    /// from IsStreaming, which goes false between them.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isAgentRunning;
+
+    /// <summary>Where an automatic run has got to, or why it stopped.</summary>
+    [ObservableProperty]
+    private string _agentStatus = string.Empty;
+
+    public bool HasAgentStatus => !string.IsNullOrEmpty(AgentStatus);
+
+    partial void OnAgentStatusChanged(string value) => OnPropertyChanged(nameof(HasAgentStatus));
 
     public bool CanCompact => !IsStreaming && !IsCompacting && CurrentConversation != null;
 
@@ -338,6 +364,8 @@ public partial class ChatViewModel : ObservableObject
         ProjectService projectService,
         ProjectContext projectContext,
         RulesService rules,
+        AgentSignals signals,
+        GitCheckpointService checkpoints,
         ILogger<ChatViewModel> logger)
     {
         _providerFactory = providerFactory;
@@ -350,6 +378,8 @@ public partial class ChatViewModel : ObservableObject
         _projectService = projectService;
         _projectContext = projectContext;
         _rules = rules;
+        _signals = signals;
+        _checkpoints = checkpoints;
         _logger = logger;
 
         // Load available providers
@@ -671,8 +701,16 @@ public partial class ChatViewModel : ObservableObject
     private async Task SendMessageAsync()
     {
         // An attachment on its own is a valid message; the file is the content.
-        if ((string.IsNullOrWhiteSpace(CurrentInput) && !HasPendingAttachments) || IsStreaming)
+        //
+        // IsAgentRunning is checked as well as IsStreaming because between the
+        // steps of an automatic run IsStreaming is false, which re-enables the
+        // Send button - without this, pressing it would start a second turn
+        // running concurrently with the loop's own.
+        if ((string.IsNullOrWhiteSpace(CurrentInput) && !HasPendingAttachments)
+            || IsStreaming || IsAgentRunning)
+        {
             return;
+        }
 
         var attachments = PendingAttachments.ToList();
         var typed = CurrentInput.Trim();
@@ -704,6 +742,112 @@ public partial class ChatViewModel : ObservableObject
 
         await GenerateResponseAsync(typed);
         await AutoCompactIfNeededAsync();
+        await RunAutonomouslyAsync();
+    }
+
+    /// <summary>
+    /// Keeps working after the first reply, when the project says to.
+    ///
+    /// Placed here rather than inside GenerateResponseAsync because this is the
+    /// one point where everything is consistent again: IsStreaming is already
+    /// false, the token source is disposed, the reply is in the conversation and
+    /// saved, the meter has refreshed, and compaction has run. Re-entering
+    /// earlier would race any of those.
+    /// </summary>
+    private async Task RunAutonomouslyAsync()
+    {
+        var loop = new AgentLoop(IsRealProject(CurrentProject) ? CurrentProject : null);
+
+        if (!loop.IsAutonomous || IsAgentRunning)
+            return;
+
+        // Anything left over from a previous run would otherwise stop this one
+        // before it has done anything.
+        _signals.Reset();
+
+        var checkpoint = await _checkpoints.PrepareAsync(
+            CurrentProject!.RootPath, CurrentProject.RequireGitCheckpoint);
+
+        if (!checkpoint.CanProceed)
+        {
+            AgentStatus = "Did not start: " + checkpoint.Message;
+            _logger.LogWarning("Autonomous run refused: {Reason}", checkpoint.Message);
+            MessageBox.Show(checkpoint.Message, "Cannot work unattended",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        IsAgentRunning = true;
+        _logger.LogInformation("Working on its own in {Project}: {Checkpoint}",
+            CurrentProject.Name, checkpoint.Message);
+
+        try
+        {
+            while (true)
+            {
+                var verdict = loop.Decide(
+                    completed: _signals.ConsumeComplete(),
+                    cancelled: _lastTurnCancelled,
+                    failed: _lastTurnFailed);
+
+                if (verdict != LoopVerdict.Continue)
+                {
+                    AgentStatus = loop.Explain(verdict, _signals.Summary);
+                    _logger.LogInformation("Run ended: {Verdict} after {Steps} step(s)",
+                        verdict, loop.Iteration);
+                    return;
+                }
+
+                if (!ShouldTakeAnotherStep(loop))
+                {
+                    AgentStatus = $"Stopped by you after {loop.Iteration} step(s).";
+                    return;
+                }
+
+                loop.CountIteration();
+                AgentStatus = $"Working on its own — step {loop.Iteration} of {loop.MaxIterations}";
+
+                // A visible message rather than a hidden one: the transcript
+                // should show why the assistant carried on.
+                var nudge = new Message
+                {
+                    Role = MessageRole.User,
+                    Content = AgentLoop.ContinuePrompt,
+                    Timestamp = DateTime.UtcNow
+                };
+
+                Messages.Add(nudge);
+                CurrentConversation?.Messages.Add(nudge);
+
+                await GenerateResponseAsync(AgentLoop.ContinuePrompt);
+                await AutoCompactIfNeededAsync();
+            }
+        }
+        finally
+        {
+            IsAgentRunning = false;
+        }
+    }
+
+    /// <summary>
+    /// In step-approve, asks before each further step. In full automatic, does not.
+    /// </summary>
+    private bool ShouldTakeAnotherStep(AgentLoop loop)
+    {
+        if (loop.Autonomy != AutonomyMode.StepApprove)
+            return true;
+
+        var answer = MessageBox.Show(
+            $"Continue working on this?{Environment.NewLine}{Environment.NewLine}" +
+            $"Step {loop.Iteration + 1} of at most {loop.MaxIterations} in " +
+            $"\"{CurrentProject?.Name}\".{Environment.NewLine}{Environment.NewLine}" +
+            "It will keep building, running and editing files in that folder until it " +
+            "reports the task finished or a limit is reached.",
+            "Continue?",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        return answer == MessageBoxResult.Yes;
     }
 
     [RelayCommand]
@@ -1008,6 +1152,8 @@ public partial class ChatViewModel : ObservableObject
     {
         IsStreaming = true;
         StreamingContent = string.Empty;
+        _lastTurnCancelled = false;
+        _lastTurnFailed = false;
         _cancellationTokenSource = new CancellationTokenSource();
 
         var assistantMessage = new Message
@@ -1171,11 +1317,13 @@ public partial class ChatViewModel : ObservableObject
         catch (OperationCanceledException)
         {
             assistantMessage.Content = StreamingContent + "\n\n[Cancelled by user]";
+            _lastTurnCancelled = true;
             _logger.LogInformation("Response generation was cancelled");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error generating response");
+            _lastTurnFailed = true;
             assistantMessage.Content = $"Error: {ex.Message}";
             MessageBox.Show($"Failed to generate response: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
         }

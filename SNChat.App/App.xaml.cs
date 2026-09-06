@@ -108,6 +108,12 @@ public partial class App : Application
         // Standing instructions from RULES.md, globally and per project.
         services.AddSingleton<RulesService>();
 
+        // How the assistant reports it has finished, and the way back before it
+        // works unattended.
+        services.AddSingleton<AgentSignals>();
+        services.AddSingleton<GitCheckpointService>();
+        services.AddSingleton<TaskCompleteTool>();
+
         // Which project the open conversation is working in. A singleton because
         // the tools are built once at startup and need to read it per call.
         services.AddSingleton<ProjectContext>();
@@ -222,6 +228,10 @@ public partial class App : Application
 
                 if (buildTools.AllowRun)
                     registry.Register(sp.GetRequiredService<RunProgramTool>());
+
+                // Only meaningful where there is a project to work in, which is
+                // the same condition as the rest of these.
+                registry.Register(sp.GetRequiredService<TaskCompleteTool>());
             }
 
             return registry;

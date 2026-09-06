@@ -500,6 +500,21 @@
                                   ToolTip="Enable tools like web search for the model"
                                   IsEnabled="{Binding IsStreaming, Converter={StaticResource InverseBooleanConverter}}"/>
 
+                        <!-- Where an automatic run has got to, or why it stopped.
+                             Shown beside the other status because a run that has
+                             stopped needs to say so as loudly as one in progress. -->
+                        <TextBlock Text="{Binding AgentStatus}"
+                                   FontSize="10"
+                                   FontWeight="SemiBold"
+                                   Foreground="#6A1B9A"
+                                   VerticalAlignment="Center"
+                                   Margin="10,0,0,0"
+                                   MaxWidth="320"
+                                   TextTrimming="CharacterEllipsis"
+                                   ToolTip="{Binding AgentStatus}"
+                                   Visibility="{Binding HasAgentStatus,
+                                                Converter={StaticResource BooleanToVisibilityConverter}}"/>
+
                         <!-- How full the model's context window is. Unlike the
                              cost beside it this is not cumulative: the history
                              is resent whole each turn, so this is what the next
