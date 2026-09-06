@@ -105,6 +105,9 @@ public partial class App : Application
         services.AddSingleton<TemplateService>();
         services.AddSingleton<ProjectService>();
 
+        // Standing instructions from RULES.md, globally and per project.
+        services.AddSingleton<RulesService>();
+
         // Which project the open conversation is working in. A singleton because
         // the tools are built once at startup and need to read it per call.
         services.AddSingleton<ProjectContext>();
@@ -151,6 +154,10 @@ public partial class App : Application
         services.AddSingleton<RunTestsTool>();
         services.AddSingleton<RunProgramTool>();
 
+        // Skills: prompt templates the user has marked invocable.
+        services.AddSingleton<ListSkillsTool>();
+        services.AddSingleton<UseSkillTool>();
+
         // Reads this app's own log so the assistant can find out why one of its
         // own tool calls was refused. The folder is fixed here rather than taken
         // from the model, so the tool has no path argument at all.
@@ -182,6 +189,16 @@ public partial class App : Application
             // nothing, and it is how the assistant finds out why one of its own
             // calls was refused.
             registry.Register(sp.GetRequiredService<ReadAppLogTool>());
+
+            // Skills are offered only when at least one template is marked
+            // invocable. Two tool definitions are sent on every request, so
+            // offering them while there is nothing to list spends context on
+            // an empty answer.
+            if (sp.GetRequiredService<TemplateService>().HasInvocableTemplates())
+            {
+                registry.Register(sp.GetRequiredService<ListSkillsTool>());
+                registry.Register(sp.GetRequiredService<UseSkillTool>());
+            }
 
             // Build tools are registered only once there is somewhere they may
             // work - a folder allowed in Settings, or a project. Their

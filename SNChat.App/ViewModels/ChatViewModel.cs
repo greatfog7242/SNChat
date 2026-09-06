@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Threading;
@@ -26,6 +26,7 @@ public partial class ChatViewModel : ObservableObject
     private readonly ConversationCompactor _compactor;
     private readonly ProjectService _projectService;
     private readonly ProjectContext _projectContext;
+    private readonly RulesService _rules;
     private readonly ILogger<ChatViewModel> _logger;
 
     /// <summary>
@@ -271,10 +272,20 @@ public partial class ChatViewModel : ObservableObject
 
     partial void OnCurrentModeChanged(string value) => PersistSelection();
 
-    /// <summary>The instructions sent ahead of the conversation.</summary>
+    /// <summary>
+    /// The instructions sent ahead of the conversation, from most general to
+    /// most specific: rules that always apply, then this project's rules, then
+    /// the answering mode, then whatever a template asked for.
+    ///
+    /// Called whenever the context meter refreshes, so the rules files behind it
+    /// are cached rather than read each time.
+    /// </summary>
     private string BuildSystemPrompt() =>
-        _settingsService.GetCachedSettings().Modes
-            .BuildSystemPrompt(CurrentMode, SystemPrompt);
+        SystemPromptComposer.Compose(
+            _rules.ReadGlobal(),
+            _rules.ReadForProject(IsRealProject(CurrentProject) ? CurrentProject!.RootPath : null),
+            _settingsService.GetCachedSettings().Modes.PromptFor(CurrentMode),
+            SystemPrompt);
 
     /// <summary>Files dropped but not yet sent with a message.</summary>
     [ObservableProperty]
@@ -326,6 +337,7 @@ public partial class ChatViewModel : ObservableObject
         ConversationCompactor compactor,
         ProjectService projectService,
         ProjectContext projectContext,
+        RulesService rules,
         ILogger<ChatViewModel> logger)
     {
         _providerFactory = providerFactory;
@@ -337,6 +349,7 @@ public partial class ChatViewModel : ObservableObject
         _compactor = compactor;
         _projectService = projectService;
         _projectContext = projectContext;
+        _rules = rules;
         _logger = logger;
 
         // Load available providers

@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 
 namespace SNChat.Core.Models;
 
@@ -20,6 +20,18 @@ public partial class PromptTemplate
     /// used, so a template can set the assistant's role as well as the message.
     /// </summary>
     public string SystemPrompt { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether the assistant may invoke this itself, rather than it only being
+    /// something the user inserts. An invocable template is a "skill": a named
+    /// procedure the model can look up and follow when the job calls for it.
+    ///
+    /// Off by default. Every invocable skill is listed in a tool description
+    /// that is sent on every single request, so opting in is what stops a
+    /// personal collection of prompts from becoming a permanent tax on the
+    /// context window.
+    /// </summary>
+    public bool Invocable { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
