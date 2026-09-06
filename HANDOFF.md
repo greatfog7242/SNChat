@@ -11,10 +11,13 @@
 
 ## Branch and commits
 
-Working branch `cache-search-images`, **pushed and in sync with origin**. Newest first:
+Working branch `cache-search-images`. **Four commits ahead of origin** — push with
+`git push origin cache-search-images`. Newest first:
 
 | Commit | What |
 |---|---|
+| `bc45131` | Subagents — `run_subagent`, agent definitions, `ActiveModel` |
+| `1bcb905` | Notes brought current with the git tools |
 | `49729ea` | `git_status` and `git_commit` — the assistant can save its own work |
 | `964f283` | Checkpoint taken before the work; auto-continue marked as such |
 | `d7ce24c` | Real-model probes for the loop; pytest falls back to unittest |
@@ -35,35 +38,46 @@ Working branch `cache-search-images`, **pushed and in sync with origin**. Newest
 
 ## Uncommitted work in the tree
 
-Nothing. Committed as of `49729ea`; push with `git push origin cache-search-images`.
+Nothing. All 363 tests pass and the app launches with `run_subagent` registered.
 
-**The published `publish\SNChat.App.exe` predates these two fixes** (built 15:36). Republish
-before another unattended run, or it will still stop to ask for a commit.
+**`publish\SNChat.App.exe` is from 16:10 and predates subagents.** It has the git tools and
+both loop fixes, so an unattended run works; it just has no `run_subagent`. Republish to
+try delegation from the app.
 
 ## Where to pick up
 
-**Stages 1-4 are done.** Stage 4 has now been driven by a real unattended run against the
-27B local model: it ran the checks, read the failures, fixed the code, re-ran, and called
-`task_complete` correctly. That run is what found the two bugs in `964f283`.
+**All five stages are done.** The plan in `DEVELOPMENT_PLAN.md` is complete.
+
+Stage 4 has been driven by a real unattended run against the 27B local model: it ran the
+checks, read the failures, fixed the code, re-ran, and called `task_complete` correctly.
+That run is what found the two bugs in `964f283`.
 
 `C:\ai-playground\autoloop-test` is the fixture for repeating it - a Python project with two
 deliberate bugs and a `check.py` that names them. Reset it with
 `git -C C:\ai-playground\autoloop-test reset --hard 18d5cf0` to put the bugs back.
 
-**Next is Stage 5, subagents** - the last stage. `ConversationCompactor.SummarizeAsync`
-already does the summarising half of what a subagent must return.
+**Stage 5, subagents, has never been exercised by a real model.** Its wiring is verified -
+the app starts, `run_subagent` registers, the defaults seed - and the logic is covered by
+22 tests against a stub provider. What is untested is whether a 27B model *delegates
+sensibly*: it has to write a self-contained task for an assistant that cannot see the
+conversation, which is a harder thing to ask of a small model than calling an ordinary tool.
+Watch the first real delegation before trusting it, and see the risk note at the end of
+`DEVELOPMENT_PLAN.md`.
 
 Known gaps, in rough order of how much they matter:
 
 - **Tool results are never shown to the user.** During an unattended run that is most of
-  what is happening; `AgentStatus` reports only "step N of M".
+  what is happening; `AgentStatus` reports only "step N of M". A subagent makes this worse:
+  its whole run is invisible, and it can take minutes.
+- **There is no UI for subagents.** They are markdown files under `%APPDATA%\SNChat\agents`,
+  hand-edited. Skills and projects both got editors; this did not.
 - Maven and Ruby/Rails remain written to spec; neither is installed here.
 
 ## Commands that matter
 
 ```bash
 dotnet build SNChat.slnx
-dotnet test SNChat.Tests/SNChat.Tests.csproj      # 341 passing as of 2026-09-06
+dotnet test SNChat.Tests/SNChat.Tests.csproj      # 363 passing as of 2026-09-06
 
 # Publish: single file. IncludeNativeLibrariesForSelfExtract is NOT optional -
 # without it five native WPF DLLs land beside the exe and it is not single-file.
@@ -127,9 +141,12 @@ the real thing, because more than one bug this week survived a green build.
 | **Gradle / Kotlin / Android** | **Verified** — `gradlew assembleDebug` builds AndroidFileFinder using the Android Studio JBR via `JAVA_HOME`; a deliberate Kotlin error was captured and is now parsed |
 | `GoogleWebSource` / `GoogleImageSource` | Complete and wired, **never exercised** against a successful response — the API appears closed to new projects |
 | OpenRouter provider | Argument handling fixed alongside Ollama's but **not re-tested live** after that change |
+| Autonomous loop end-to-end | **Verified** — a real unattended run against the 27B local model fixed two deliberate bugs and called `task_complete` |
+| Subagent wiring (`run_subagent`) | **Verified** — the app starts with no DI cycle, the tool registers, the defaults seed and round-trip |
+| **A model actually delegating** | **NEVER RUN.** All 22 subagent tests use a stub provider. Whether a 27B model writes a usable self-contained task is unknown |
 
-Test count is **341 passing** at `49729ea`. If your count is lower, check you are on that
-commit before assuming you broke something.
+Test count is **363 passing** at the subagents commit. If your count is lower, check you are
+on that commit before assuming you broke something.
 
 Also stale and not to be trusted: `README.md`, `SESSION_SUMMARY.md`, `CHANGELOG.md` all
 date to 2026-08-30. In this file, trust the section you are reading plus
@@ -453,6 +470,38 @@ in the streaming overlay (status chunks are shown but never persisted).
 - Deferred: app icon (still the stock WPF icon; needs a supplied .ico or PNG).
 
 ### Non-obvious findings (worth not rediscovering)
+
+#### From 2026-09-06 (subagents)
+
+**A subagent must never be given `task_complete`, and the reason is invisible.**
+`AgentSignals` is one shared singleton — there is no per-conversation instance of it. A
+subagent calling `task_complete` would therefore not be reporting its own completion; it
+would be telling the *parent's* autonomous loop that the entire run had finished. A
+delegated search would end the job it was sent to help with, and the symptom would be a run
+that stopped early for no visible reason. `RunSubagentTool.NeverDelegated` withholds it
+along with `run_subagent` itself, whatever a definition asks for. Both are tested.
+
+**The subagent tool is in a three-way DI cycle.** It needs `IToolRegistry` to know what it
+may pass on; the registry factory registers it; the providers are built from the registry.
+Constructor injection deadlocks the container at startup. It takes `Func<IToolRegistry>`
+and `Func<ILLMProviderFactory>` instead, and is constructed by hand in `App.xaml.cs`. This
+only fails at runtime, never at build — the app has to actually be launched to prove it.
+
+**`AgentDefinitionService` is synchronous on purpose, and should stay that way.** Its
+neighbours are all async, but this one is read from a DI factory on the WPF UI thread at
+startup. Blocking on a Task whose continuation wants that same thread is a deadlock, and
+`await File.ReadAllTextAsync` without `ConfigureAwait(false)` is exactly that continuation.
+These are a handful of one-kilobyte files; async bought nothing and cost a hang.
+
+**Defaults seed once ever, not once per empty folder.** Tracked by a `.seeded` marker
+written *before* the agents. Seeding whenever the folder is empty would mean deleting the
+agents you do not want gets undone at the next launch, with no way to turn the feature off.
+The marker goes first so a half-failed seed does not duplicate on the next run.
+
+**An agent whose tools are all missing is refused rather than run.** The likely cause is a
+definition naming MCP tools from a server that is not running — the `explorer` default is
+mostly MCP filesystem tools. Handed no tools, a model still answers, confidently and from
+nothing, and the parent has no way to tell that from a real finding.
 
 #### From 2026-09-05/06 (context meter, build tools, tool arguments)
 

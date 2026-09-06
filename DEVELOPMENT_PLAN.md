@@ -16,11 +16,16 @@
 | 2 — Languages | **done** (Maven and Ruby unverifiable here) |
 | 3 — Harness: rules and skills | **done** |
 | 4 — Looping | **done, verified by a real run** |
-| 5 — Subagents | not started |
+| 5 — Subagents | **done, wiring verified; no model has delegated yet** |
 
-Shipped so far: `list_projects`, `build_project`, `run_tests`, `run_program`,
-`read_app_log`; projects with per-project autonomy, selectable in the toolbar and managed
-in Settings; the context meter and auto-compaction that preceded all of it.
+**The plan is complete.** Shipped: `list_projects`, `build_project`, `run_tests`,
+`run_program`, `read_app_log`, `task_complete`, `git_status`, `git_commit`, `run_subagent`;
+projects with per-project autonomy, selectable in the toolbar and managed in Settings;
+rules and skills; the autonomous loop; the context meter and auto-compaction that preceded
+all of it.
+
+What is left is not more features but use: the untested thing now is model behaviour, not
+code. See the risk note at the end of this file, which has aged well.
 
 ## Context
 
@@ -204,6 +209,31 @@ description, system prompt, allowed tool names, model override) — same pattern
 Stage 4 loop against it with its own budget and tool subset, and returns a summary to the
 parent. Reuse `ConversationCompactor.SummarizeAsync` for the summary — it already does
 exactly this shape of work.
+
+### What actually shipped, and where it differs
+
+`SNChat.Core/Models/AgentDefinition.cs`, `Core/Services/AgentDefinitionService.cs`,
+`Core/Services/ActiveModel.cs`, `SNChat.LLM/Tools/SubagentTools.cs`, 22 tests.
+
+Two deliberate departures from the plan above:
+
+**It does not run the Stage 4 loop, and does not re-summarise.** A subagent is a single
+`GenerateStreamAsync` call with its own tool subset and its own `MaxToolIterations` — the
+provider already runs the tool loop inside one call. Nesting the cross-turn loop would have
+meant nested checkpoints, nested budgets and a second thing that can call `task_complete`,
+for no gain: a subagent doing eight tool calls in one turn is the case that matters.
+
+`ConversationCompactor.SummarizeAsync` is not reused either. The subagent's final answer
+*is* its summary — it was asked to report, and it reports. Summarising a summary would add
+a second model call, a second chance to lose the detail, and latency, to shorten text that
+is already short. Long reports are capped instead, and say that they were.
+
+**Two tools are withheld from every subagent, always** — see `NeverDelegated`, and the
+`AgentSignals` finding in `HANDOFF.md`. This was not in the plan and is the sharpest edge
+in the feature.
+
+There is **no UI**: agents are markdown files, hand-edited, seeded with two read-only
+defaults on first run. Skills and projects both got editors and this did not.
 
 ## Verification
 
