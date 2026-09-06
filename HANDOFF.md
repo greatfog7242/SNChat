@@ -15,6 +15,8 @@ Working branch `cache-search-images`, **ahead of origin and not pushed**. Newest
 
 | Commit | What |
 |---|---|
+| `964f283` | Checkpoint taken before the work; auto-continue marked as such |
+| `d7ce24c` | Real-model probes for the loop; pytest falls back to unittest |
 | `5d6e4a5` | Autonomous loop: `task_complete`, budgets, git checkpoint |
 | `61acf6a` | Tool calls and results persisted — stage 4's prerequisite |
 | `beef193` | Conversation remembers its instructions; rules and skills editors |
@@ -32,45 +34,41 @@ Working branch `cache-search-images`, **ahead of origin and not pushed**. Newest
 
 ## Uncommitted work in the tree
 
-Nothing. Everything is committed as of `5d6e4a5`.
+Nothing. Everything is committed as of `964f283`.
 
-**The published `publish\SNChat.App.exe` is stale** — built 2026-09-05 23:30, before the
-frontmatter fix, so it still fails to load conversations whose title contains three hyphens.
-Republish before judging any conversation-loading behaviour from it.
+**The published `publish\SNChat.App.exe` predates these two fixes** (built 15:36). Republish
+before another unattended run, or it will still stop to ask for a commit.
 
 **Not yet pushed.** Run `git log --oneline origin/cache-search-images..HEAD` for what is
 pending.
 
 ## Where to pick up
 
-**Stages 1–3 are done. Stage 4 is built but has never been driven by a real model.**
+**Stages 1-4 are done.** Stage 4 has now been driven by a real unattended run against the
+27B local model: it ran the checks, read the failures, fixed the code, re-ran, and called
+`task_complete` correctly. That run is what found the two bugs in `964f283`.
 
-That gap is the important thing. Every exit is unit-tested and the checkpoint is tested
-against real git, but no actual autonomous run has happened: nothing has confirmed that a
-model given a task will call `task_complete` rather than loop to its budget, that the
-step-approve prompt appears at the right moment, or that the transcript reads sensibly with
-the continuation messages in it. **Do that before building on it.** Set a project to
-FullAuto with a small step budget, give it something trivial, and watch.
+`C:\ai-playground\autoloop-test` is the fixture for repeating it - a Python project with two
+deliberate bugs and a `check.py` that names them. Reset it with
+`git -C C:\ai-playground\autoloop-test reset --hard 18d5cf0` to put the bugs back.
 
-Two things known to be unfinished:
+**Next is Stage 5, subagents** - the last stage. `ConversationCompactor.SummarizeAsync`
+already does the summarising half of what a subagent must return.
 
-- **The progress surface is thin.** `AgentStatus` reports "step N of M" and why a run
-  stopped, but tool results are still never shown to the user at all — during an unattended
-  run that is most of what is happening.
-- **A local 27B model is the likeliest failure.** It will loop confidently rather than
-  calling `task_complete`. Step-approve is the sane default until a given model has been
-  watched on a real task.
+Known gaps, in rough order of how much they matter:
 
-Then Stage 5, subagents. `ConversationCompactor.SummarizeAsync` already does the
-summarising half of what a subagent must return.
-
-Still unverifiable on this machine: Maven and Ruby/Rails, neither being installed.
+- **The assistant cannot commit.** It has no git tool, so during a run it asks the user to
+  commit instead, which is not really unattended. Worth considering a narrow git tool
+  (add/commit only, inside the project root).
+- **Tool results are never shown to the user.** During an unattended run that is most of
+  what is happening; `AgentStatus` reports only "step N of M".
+- Maven and Ruby/Rails remain written to spec; neither is installed here.
 
 ## Commands that matter
 
 ```bash
 dotnet build SNChat.slnx
-dotnet test SNChat.Tests/SNChat.Tests.csproj      # 323 passing as of 2026-09-06
+dotnet test SNChat.Tests/SNChat.Tests.csproj      # 331 passing as of 2026-09-06
 
 # Publish: single file. IncludeNativeLibrariesForSelfExtract is NOT optional -
 # without it five native WPF DLLs land beside the exe and it is not single-file.
@@ -135,7 +133,7 @@ the real thing, because more than one bug this week survived a green build.
 | `GoogleWebSource` / `GoogleImageSource` | Complete and wired, **never exercised** against a successful response — the API appears closed to new projects |
 | OpenRouter provider | Argument handling fixed alongside Ollama's but **not re-tested live** after that change |
 
-Test count is **323 passing** at `5d6e4a5`. If your count is lower, check you are on that
+Test count is **331 passing** at `964f283`. If your count is lower, check you are on that
 commit before assuming you broke something.
 
 Also stale and not to be trusted: `README.md`, `SESSION_SUMMARY.md`, `CHANGELOG.md` all
@@ -477,6 +475,13 @@ fix that trimmed both ends was still wrong: YAML indents a block scalar's conten
 spaces, so a value containing three hyphens yields a line reading `  ---`, which trimming
 turned back into a delimiter. A delimiter is a line at column zero and nothing else. Caught
 only because a test round-tripped a multi-line system prompt through real YAML.
+
+**A safety check placed after the work it protects will fire on that work.** The git
+checkpoint ran after the first reply, but the first reply is when the model edits files - so
+the folder was dirty from the run's own changes and the run refused to continue because of
+them. From outside it looked like the assistant stopping to ask permission for no reason.
+Only a real unattended run could show this; every unit test passed throughout. Take the
+checkpoint before anything is touched.
 
 **The Kotlin compiler's diagnostics look like nothing else.** A real Android build prints
 `e: file:///C:/app/src/.../Thing.kt:6:17 Unresolved reference 'foo'.` — a bare `e:` instead

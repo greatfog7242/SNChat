@@ -15,7 +15,7 @@
 | 1 — Close the loop (run and debug) | **done** |
 | 2 — Languages | **done** (Maven and Ruby unverifiable here) |
 | 3 — Harness: rules and skills | **done** |
-| 4 — Looping | **built, never driven by a real model** |
+| 4 — Looping | **done, verified by a real run** |
 | 5 — Subagents | not started |
 
 Shipped so far: `list_projects`, `build_project`, `run_tests`, `run_program`,
