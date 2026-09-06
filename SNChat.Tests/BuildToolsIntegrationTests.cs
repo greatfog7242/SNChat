@@ -245,6 +245,136 @@ public class BuildToolsIntegrationTests : IDisposable
         Assert.DoesNotContain("vcxproj", BuildOutputParser.Summarize(result, "Build"));
     }
 
+    /// <summary>
+    /// The whole point of the feature: compile a program and then actually see
+    /// what it prints. Before this the assistant built well_done.exe and never
+    /// learned whether it worked.
+    /// </summary>
+    [Fact]
+    public async Task A_program_that_was_just_built_can_be_run_and_its_output_read()
+    {
+        if (!CMakeAvailable)
+            return;
+
+        var directory = WriteCppProject("greeter", """
+            #include <iostream>
+            int main() { std::cout << "well done" << std::endl; return 0; }
+            """);
+
+        Assert.True((await CMakeBuildAsync(directory)).Succeeded);
+
+        var exe = Directory
+            .EnumerateFiles(Path.Combine(directory, "build"), "greeter.exe", SearchOption.AllDirectories)
+            .FirstOrDefault();
+
+        Assert.NotNull(exe);
+
+        var run = await Runner().RunAsync(exe!, Array.Empty<string>(), directory, Timeout);
+
+        Assert.True(run.Succeeded, run.Output);
+        Assert.Contains("well done", run.Output);
+        Assert.Contains("well done", RunProgramTool.Describe(run, "greeter.exe"));
+    }
+
+    [Fact]
+    public async Task A_program_that_reads_input_gets_it_and_terminates()
+    {
+        // The hang this guards against: stdin left open means a program reading
+        // to end-of-input waits for the entire timeout and returns nothing.
+        if (!CMakeAvailable)
+            return;
+
+        var directory = WriteCppProject("echoer", """
+            #include <iostream>
+            #include <string>
+            int main() {
+                std::string line;
+                while (std::getline(std::cin, line)) { std::cout << "got:" << line << std::endl; }
+                return 0;
+            }
+            """);
+
+        Assert.True((await CMakeBuildAsync(directory)).Succeeded);
+
+        var exe = Directory
+            .EnumerateFiles(Path.Combine(directory, "build"), "echoer.exe", SearchOption.AllDirectories)
+            .FirstOrDefault();
+
+        Assert.NotNull(exe);
+
+        var run = await Runner().RunAsync(
+            exe!, Array.Empty<string>(), directory, TimeSpan.FromSeconds(30),
+            CancellationToken.None, standardInput: "hello\nworld\n");
+
+        Assert.False(run.TimedOut, "the program blocked on stdin instead of seeing end-of-input");
+        Assert.Contains("got:hello", run.Output);
+        Assert.Contains("got:world", run.Output);
+    }
+
+    [Fact]
+    public async Task A_program_given_no_input_still_reaches_end_of_input()
+    {
+        // Same hazard, and the case that is easy to forget: stdin must be closed
+        // even when there was nothing to send.
+        if (!CMakeAvailable)
+            return;
+
+        var directory = WriteCppProject("drainer", """
+            #include <iostream>
+            #include <string>
+            int main() {
+                std::string line;
+                while (std::getline(std::cin, line)) { }
+                std::cout << "done reading" << std::endl;
+                return 0;
+            }
+            """);
+
+        Assert.True((await CMakeBuildAsync(directory)).Succeeded);
+
+        var exe = Directory
+            .EnumerateFiles(Path.Combine(directory, "build"), "drainer.exe", SearchOption.AllDirectories)
+            .FirstOrDefault();
+
+        Assert.NotNull(exe);
+
+        var run = await Runner().RunAsync(exe!, Array.Empty<string>(), directory, TimeSpan.FromSeconds(30));
+
+        Assert.False(run.TimedOut, "stdin was left open, so the program never saw end-of-input");
+        Assert.Contains("done reading", run.Output);
+    }
+
+    [Fact]
+    public async Task Command_line_arguments_reach_the_program()
+    {
+        if (!CMakeAvailable)
+            return;
+
+        var directory = WriteCppProject("argprinter", """
+            #include <iostream>
+            int main(int argc, char** argv) {
+                for (int i = 1; i < argc; ++i) std::cout << "arg:" << argv[i] << std::endl;
+                return 0;
+            }
+            """);
+
+        Assert.True((await CMakeBuildAsync(directory)).Succeeded);
+
+        var exe = Directory
+            .EnumerateFiles(Path.Combine(directory, "build"), "argprinter.exe", SearchOption.AllDirectories)
+            .FirstOrDefault();
+
+        Assert.NotNull(exe);
+
+        // A space in an argument is the classic quoting bug; ArgumentList should
+        // pass it through as one argument rather than two.
+        var run = await Runner().RunAsync(
+            exe!, new[] { "first", "second one" }, directory, Timeout);
+
+        Assert.Contains("arg:first", run.Output);
+        Assert.Contains("arg:second one", run.Output);
+    }
+
     [Fact]
     public async Task A_command_that_does_not_exist_is_reported_rather_than_thrown()
     {

@@ -8,7 +8,19 @@ namespace SNChat.BuildTools;
 public sealed class ProcessResult
 {
     public int ExitCode { get; init; }
+
+    /// <summary>
+    /// Everything the process printed, both streams interleaved in the order it
+    /// actually wrote them. This is what a build's diagnostics are read from.
+    /// </summary>
     public string Output { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Just the error stream. Kept alongside <see cref="Output"/> rather than
+    /// instead of it, because debugging a program wants to know *which* stream
+    /// said something while a build only wants the text in order.
+    /// </summary>
+    public string StandardError { get; init; } = string.Empty;
 
     /// <summary>True when the command was still running when its time ran out.</summary>
     public bool TimedOut { get; init; }
@@ -44,12 +56,18 @@ public sealed class ProcessRunner
         _logger = logger;
     }
 
+    /// <summary>
+    /// <paramref name="standardInput"/> is written to the process and the stream
+    /// is then closed. Null means "nothing to send", which still closes it - see
+    /// the note where that happens.
+    /// </summary>
     public async Task<ProcessResult> RunAsync(
         string fileName,
         IEnumerable<string> arguments,
         string workingDirectory,
         TimeSpan timeout,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? standardInput = null)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -57,6 +75,11 @@ public sealed class ProcessRunner
             WorkingDirectory = workingDirectory,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            // Always redirected, never inherited. A GUI app has no console to
+            // inherit, and a redirected-then-closed stdin is what stops a
+            // program that reads input from waiting forever on one that will
+            // never arrive.
+            RedirectStandardInput = true,
             UseShellExecute = false,
             CreateNoWindow = true
         };
@@ -73,9 +96,10 @@ public sealed class ProcessRunner
         using var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
 
         var captured = new StringBuilder();
+        var errors = new StringBuilder();
         var truncated = false;
 
-        void Capture(string? line)
+        void Capture(string? line, bool isError)
         {
             if (line == null)
                 return;
@@ -89,13 +113,18 @@ public sealed class ProcessRunner
                 }
 
                 captured.AppendLine(line);
+
+                if (isError)
+                    errors.AppendLine(line);
             }
         }
 
-        // stderr is folded in with stdout: MSBuild and Gradle both split
-        // diagnostics across the two, and a build's errors are the point.
-        process.OutputDataReceived += (_, e) => Capture(e.Data);
-        process.ErrorDataReceived += (_, e) => Capture(e.Data);
+        // stderr is folded in with stdout so the order survives: MSBuild and
+        // Gradle both split diagnostics across the two, and a build's errors are
+        // the point. It is also kept on its own, for callers that care which
+        // stream a line came from.
+        process.OutputDataReceived += (_, e) => Capture(e.Data, isError: false);
+        process.ErrorDataReceived += (_, e) => Capture(e.Data, isError: true);
 
         try
         {
@@ -109,6 +138,23 @@ public sealed class ProcessRunner
 
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
+
+        // Send whatever was supplied, then close - always, even with nothing to
+        // send. A program that reads until end-of-input hangs forever on a stdin
+        // that stays open, and burns the entire timeout doing nothing.
+        try
+        {
+            if (!string.IsNullOrEmpty(standardInput))
+                await process.StandardInput.WriteAsync(standardInput);
+
+            process.StandardInput.Close();
+        }
+        catch (IOException ex)
+        {
+            // A process that has already exited closes the pipe first. That is
+            // not a failure of the run - its output is still worth reading.
+            _logger.LogDebug(ex, "Could not write stdin to {FileName}; it may have exited already", fileName);
+        }
 
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(timeout);
@@ -129,7 +175,8 @@ public sealed class ProcessRunner
             {
                 ExitCode = -1,
                 TimedOut = true,
-                Output = Read()
+                Output = Read(),
+                StandardError = ReadErrors()
             };
         }
 
@@ -142,12 +189,25 @@ public sealed class ProcessRunner
         if (truncated)
             output += "\n[output truncated]";
 
-        return new ProcessResult { ExitCode = process.ExitCode, Output = output };
+        return new ProcessResult
+        {
+            ExitCode = process.ExitCode,
+            Output = output,
+            StandardError = ReadErrors()
+        };
 
         string Read()
         {
             lock (captured)
                 return captured.ToString();
+        }
+
+        string ReadErrors()
+        {
+            // Guarded by the same lock as the combined buffer, since both are
+            // appended from the two reader callbacks.
+            lock (captured)
+                return errors.ToString();
         }
     }
 

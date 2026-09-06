@@ -11,6 +11,7 @@ namespace SNChat.BuildTools;
 public class ListProjectsTool : ITool
 {
     private readonly SettingsService _settingsService;
+    private readonly ProjectContext _projects;
 
     public string Name => "list_projects";
 
@@ -21,16 +22,18 @@ public class ListProjectsTool : ITool
 
     public ToolParameterSchema Parameters => new();
 
-    public ListProjectsTool(SettingsService settingsService)
+    public ListProjectsTool(SettingsService settingsService, ProjectContext projects)
     {
         _settingsService = settingsService;
+        _projects = projects;
     }
 
     public Task<string> ExecuteAsync(
         IReadOnlyDictionary<string, object?> arguments,
         CancellationToken cancellationToken = default)
     {
-        var guard = new WorkspaceGuard(_settingsService.GetCachedSettings().BuildTools.AllowedRoots);
+        var guard = new WorkspaceGuard(
+            _projects.EffectiveRoots(_settingsService.GetCachedSettings().BuildTools));
 
         if (!guard.HasRoots)
             return Task.FromResult(guard.DenialMessage(string.Empty));

@@ -1,4 +1,5 @@
 using SNChat.Core.Models;
+using SNChat.Core.Services;
 
 namespace SNChat.BuildTools;
 
@@ -19,11 +20,12 @@ public static class BuildToolArguments
     public static (BuildTarget Target, string Configuration)? Resolve(
         IReadOnlyDictionary<string, object?> arguments,
         BuildToolSettings settings,
+        ProjectContext projects,
         out string? failure)
     {
         failure = null;
 
-        var guard = new WorkspaceGuard(settings.AllowedRoots);
+        var guard = new WorkspaceGuard(projects.EffectiveRoots(settings));
 
         if (!arguments.TryGetValue("path", out var rawPath) || rawPath is null)
         {

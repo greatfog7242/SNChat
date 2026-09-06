@@ -15,6 +15,7 @@ namespace SNChat.BuildTools;
 public class RunTestsTool : ITool
 {
     private readonly SettingsService _settingsService;
+    private readonly ProjectContext _projects;
     private readonly ProcessRunner _runner;
     private readonly ILogger<RunTestsTool> _logger;
 
@@ -48,10 +49,12 @@ public class RunTestsTool : ITool
 
     public RunTestsTool(
         SettingsService settingsService,
+        ProjectContext projects,
         ProcessRunner runner,
         ILogger<RunTestsTool> logger)
     {
         _settingsService = settingsService;
+        _projects = projects;
         _runner = runner;
         _logger = logger;
     }
@@ -65,7 +68,7 @@ public class RunTestsTool : ITool
         if (!settings.AllowTests)
             return "Running tests is turned off. Enable it under Settings - Build tools.";
 
-        var resolved = BuildToolArguments.Resolve(arguments, settings, out var failure);
+        var resolved = BuildToolArguments.Resolve(arguments, settings, _projects, out var failure);
 
         if (resolved == null)
             return failure!;

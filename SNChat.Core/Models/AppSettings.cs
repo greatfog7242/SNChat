@@ -46,6 +46,25 @@ public class BuildToolSettings
     public bool AllowTests { get; set; } = true;
 
     /// <summary>
+    /// Whether the model may run a program it built. This is what closes the
+    /// write-build-run-fix loop: without it the model compiles something and
+    /// never learns whether it works, so it asks the user to paste the output back.
+    ///
+    /// A step beyond building. A build runs scripts the project's author wrote;
+    /// this runs a binary the model itself just produced. It is still confined
+    /// to the allowed folders, so in practice that means something it compiled
+    /// there.
+    /// </summary>
+    public bool AllowRun { get; set; } = true;
+
+    /// <summary>
+    /// Time limit for one program run, separate from and much shorter than the
+    /// build timeout. A program waiting on input it will never get would
+    /// otherwise hold the conversation for the full five minutes.
+    /// </summary>
+    public int RunTimeoutSeconds { get; set; } = 60;
+
+    /// <summary>
     /// The dotnet executable. A bare name is looked up on PATH; give a full path
     /// if several SDKs are installed and the wrong one is being found.
     /// </summary>

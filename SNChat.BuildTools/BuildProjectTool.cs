@@ -16,6 +16,7 @@ namespace SNChat.BuildTools;
 public class BuildProjectTool : ITool
 {
     private readonly SettingsService _settingsService;
+    private readonly ProjectContext _projects;
     private readonly ProcessRunner _runner;
     private readonly ILogger<BuildProjectTool> _logger;
 
@@ -50,10 +51,12 @@ public class BuildProjectTool : ITool
 
     public BuildProjectTool(
         SettingsService settingsService,
+        ProjectContext projects,
         ProcessRunner runner,
         ILogger<BuildProjectTool> logger)
     {
         _settingsService = settingsService;
+        _projects = projects;
         _runner = runner;
         _logger = logger;
     }
@@ -63,7 +66,7 @@ public class BuildProjectTool : ITool
         CancellationToken cancellationToken = default)
     {
         var settings = _settingsService.GetCachedSettings().BuildTools;
-        var resolved = BuildToolArguments.Resolve(arguments, settings, out var failure);
+        var resolved = BuildToolArguments.Resolve(arguments, settings, _projects, out var failure);
 
         if (resolved == null)
             return failure!;

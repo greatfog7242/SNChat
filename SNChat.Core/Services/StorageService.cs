@@ -187,6 +187,7 @@ public class StorageService : IStorageService
             provider = conversation.Metadata.Provider,
             parent_branch = conversation.ParentBranchId,
             branch_point = conversation.BranchPoint,
+            project = conversation.ProjectId,
             tags = conversation.Metadata.Tags,
             total_prompt_tokens = conversation.Metadata.TotalPromptTokens,
             total_completion_tokens = conversation.Metadata.TotalCompletionTokens,
@@ -262,6 +263,15 @@ public class StorageService : IStorageService
 
         if (frontmatter.ContainsKey("branch_point"))
             conversation.BranchPoint = Convert.ToInt32(frontmatter["branch_point"]);
+
+        // Absent from anything saved before projects existed, so it is read only
+        // when present and otherwise leaves the conversation unattached.
+        if (frontmatter.ContainsKey("project"))
+        {
+            var raw = frontmatter["project"]?.ToString();
+            if (!string.IsNullOrWhiteSpace(raw) && Guid.TryParse(raw, out var projectId))
+                conversation.ProjectId = projectId;
+        }
 
         if (frontmatter.ContainsKey("tags") && frontmatter["tags"] is List<object> tags)
             conversation.Metadata.Tags = tags.Select(t => t.ToString()!).ToList();

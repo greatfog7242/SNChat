@@ -103,6 +103,12 @@ public partial class App : Application
         services.AddSingleton<IGroupService, GroupService>();
         services.AddSingleton<SettingsService>();
         services.AddSingleton<TemplateService>();
+        services.AddSingleton<ProjectService>();
+
+        // Which project the open conversation is working in. A singleton because
+        // the tools are built once at startup and need to read it per call.
+        services.AddSingleton<ProjectContext>();
+
         services.AddSingleton<IImageResizer, Services.WpfImageResizer>();
         services.AddSingleton<AttachmentService>();
 
@@ -143,6 +149,7 @@ public partial class App : Application
         services.AddSingleton<ListProjectsTool>();
         services.AddSingleton<BuildProjectTool>();
         services.AddSingleton<RunTestsTool>();
+        services.AddSingleton<RunProgramTool>();
 
         services.AddSingleton<IToolRegistry>(sp =>
         {
@@ -164,19 +171,28 @@ public partial class App : Application
             // point at nothing. Nothing else here can search for an image.
             registry.Register(sp.GetRequiredService<ImageSearchTool>());
 
-            // Build tools are registered only once folders have been allowed.
-            // Their definitions are sent with every request, so offering them
-            // while they can only ever refuse would spend context on nothing and
+            // Build tools are registered only once there is somewhere they may
+            // work - a folder allowed in Settings, or a project. Their
+            // definitions are sent with every request, so offering them while
+            // they can only ever refuse would spend context on nothing and
             // invite the model to keep trying them.
+            //
+            // Decided once at startup, so adding the first project needs a
+            // restart before the tools appear. The Settings tab says so.
             var buildTools = sp.GetRequiredService<SettingsService>().GetCachedSettings().BuildTools;
+            var hasSomewhereToWork = buildTools.AllowedRoots.Count > 0
+                                     || sp.GetRequiredService<ProjectService>().HasAnyProjects();
 
-            if (buildTools.AllowedRoots.Count > 0)
+            if (hasSomewhereToWork)
             {
                 registry.Register(sp.GetRequiredService<ListProjectsTool>());
                 registry.Register(sp.GetRequiredService<BuildProjectTool>());
 
                 if (buildTools.AllowTests)
                     registry.Register(sp.GetRequiredService<RunTestsTool>());
+
+                if (buildTools.AllowRun)
+                    registry.Register(sp.GetRequiredService<RunProgramTool>());
             }
 
             return registry;
