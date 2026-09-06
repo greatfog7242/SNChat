@@ -15,6 +15,7 @@ Working branch `cache-search-images`, **ahead of origin and not pushed**. Newest
 
 | Commit | What |
 |---|---|
+| `5d6e4a5` | Autonomous loop: `task_complete`, budgets, git checkpoint |
 | `61acf6a` | Tool calls and results persisted — stage 4's prerequisite |
 | `beef193` | Conversation remembers its instructions; rules and skills editors |
 | `40259b6` | Frontmatter split fix — conversations stopped being unreadable |
@@ -31,38 +32,37 @@ Working branch `cache-search-images`, **ahead of origin and not pushed**. Newest
 
 ## Uncommitted work in the tree
 
-Nothing. Everything is committed as of `61acf6a`.
+Nothing. Everything is committed as of `5d6e4a5`.
 
 **The published `publish\SNChat.App.exe` is stale** — built 2026-09-05 23:30, before the
 frontmatter fix, so it still fails to load conversations whose title contains three hyphens.
 Republish before judging any conversation-loading behaviour from it.
 
 **Not yet pushed.** Run `git log --oneline origin/cache-search-images..HEAD` for what is
-pending — a fixed number written here goes stale the moment another commit lands.
+pending.
 
 ## Where to pick up
 
-**Foundation and Stages 1–3 are done, and Stage 4's prerequisite is now in.** Tool calls and
-results persist with the conversation, so a loop can see what its own tools returned.
+**Stages 1–3 are done. Stage 4 is built but has never been driven by a real model.**
 
-**Next is the loop itself.** The seam is `ChatViewModel.SendMessageAsync`, right after
-`GenerateResponseAsync` returns: at that moment `IsStreaming` is already false, the token
-source is disposed, the reply is saved and the meter has refreshed. Hazards to handle, all
-listed with line references in `DEVELOPMENT_PLAN.md`:
+That gap is the important thing. Every exit is unit-tested and the checkpoint is tested
+against real git, but no actual autonomous run has happened: nothing has confirmed that a
+model given a task will call `task_complete` rather than loop to its budget, that the
+step-approve prompt appears at the right moment, or that the transcript reads sensibly with
+the continuation messages in it. **Do that before building on it.** Set a project to
+FullAuto with a small step budget, give it something trivial, and watch.
 
-- `IsStreaming` is false *between* iterations, so the Send button re-enables and the user
-  can start a concurrent turn. Needs a separate `IsAgentRunning` flag.
-- A cancelled turn leaves the assistant message in `Messages` but not in
-  `CurrentConversation.Messages`; the two collections diverge.
-- Cancellation is not observable afterwards — the token source is nulled in the `finally`.
-- `AutoCompactIfNeededAsync` itself calls the provider and saves; re-entering races it.
-- `_measuredPromptTokens` / `_measuredThrough` / `_requestedMessageCount` are single-slot
-  fields that overlapping turns corrupt.
+Two things known to be unfinished:
 
-Also needed: a `task_complete` tool so stopping is observable rather than string-matched out
-of prose, budgets from the project (`MaxLoopIterations`, `MaxLoopMinutes`), the git
-checkpoint before a full-auto run, and a real progress surface — `StatusMessage` is one
-unstructured string with no iteration counter, and tool results are never shown at all.
+- **The progress surface is thin.** `AgentStatus` reports "step N of M" and why a run
+  stopped, but tool results are still never shown to the user at all — during an unattended
+  run that is most of what is happening.
+- **A local 27B model is the likeliest failure.** It will loop confidently rather than
+  calling `task_complete`. Step-approve is the sane default until a given model has been
+  watched on a real task.
+
+Then Stage 5, subagents. `ConversationCompactor.SummarizeAsync` already does the
+summarising half of what a subagent must return.
 
 Still unverifiable on this machine: Maven and Ruby/Rails, neither being installed.
 
@@ -70,7 +70,7 @@ Still unverifiable on this machine: Maven and Ruby/Rails, neither being installe
 
 ```bash
 dotnet build SNChat.slnx
-dotnet test SNChat.Tests/SNChat.Tests.csproj      # 301 passing as of 2026-09-06
+dotnet test SNChat.Tests/SNChat.Tests.csproj      # 323 passing as of 2026-09-06
 
 # Publish: single file. IncludeNativeLibrariesForSelfExtract is NOT optional -
 # without it five native WPF DLLs land beside the exe and it is not single-file.
@@ -135,7 +135,7 @@ the real thing, because more than one bug this week survived a green build.
 | `GoogleWebSource` / `GoogleImageSource` | Complete and wired, **never exercised** against a successful response — the API appears closed to new projects |
 | OpenRouter provider | Argument handling fixed alongside Ollama's but **not re-tested live** after that change |
 
-Test count is **301 passing** at `61acf6a`. If your count is lower, check you are on that
+Test count is **323 passing** at `5d6e4a5`. If your count is lower, check you are on that
 commit before assuming you broke something.
 
 Also stale and not to be trusted: `README.md`, `SESSION_SUMMARY.md`, `CHANGELOG.md` all
