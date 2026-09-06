@@ -1,6 +1,7 @@
 ﻿using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
+using SNChat.Core.Models;
 using SNChat.Core.Services;
 using SNChat.Core.Tools;
 
@@ -104,14 +105,20 @@ public class RunTestsTool : ITool
                 "-C", configuration
             }),
 
-            _ => (settings.DotnetPath, new List<string>
+            ProjectKind.DotNet => (settings.DotnetPath, new List<string>
             {
                 "test", target.Path,
                 "--configuration", configuration,
                 "--nologo",
                 "--verbosity", "minimal"
-            })
+            }),
+
+            // Everything else comes from the language table.
+            _ => LanguageTest(target, configuration, settings)
         };
+
+        if (fileName.Length == 0)
+            return args.Count > 0 ? args[0] : $"Cannot test a {target.Kind} project.";
 
         // Each filter goes on as a single argument, so nothing in it can be read
         // as a second one - there is no shell here to re-split it.
@@ -142,6 +149,25 @@ public class RunTestsTool : ITool
             cancellationToken);
 
         return Summarize(result, Path.GetFileName(target.Path), filter != null);
+    }
+
+    /// <summary>
+    /// The test command for a language handled by the toolchain table.
+    ///
+    /// Signals "cannot" with an empty executable and the reason as the first
+    /// argument, so it fits the tuple the surrounding switch produces. The
+    /// caller checks for that immediately and returns the reason.
+    /// </summary>
+    private static (string, List<string>) LanguageTest(
+        BuildTarget target,
+        string configuration,
+        BuildToolSettings settings)
+    {
+        var command = Toolchains.Test(target, configuration, settings);
+
+        return command.CanRun
+            ? (command.Executable, command.Arguments)
+            : (string.Empty, new List<string> { command.Problem! });
     }
 
     /// <summary>

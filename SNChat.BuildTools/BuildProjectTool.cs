@@ -84,9 +84,29 @@ public class BuildProjectTool : ITool
         if (target.Kind == ProjectKind.CMake)
             return await BuildCMakeAsync(target, configuration, settings, timeout, cancellationToken);
 
-        var (fileName, args) = target.Kind == ProjectKind.Gradle
-            ? GradleCommand(target, configuration)
-            : DotNetCommand(target, configuration, settings);
+        string fileName;
+        List<string> args;
+
+        switch (target.Kind)
+        {
+            case ProjectKind.Gradle:
+                (fileName, args) = GradleCommand(target, configuration);
+                break;
+
+            case ProjectKind.DotNet:
+                (fileName, args) = DotNetCommand(target, configuration, settings);
+                break;
+
+            default:
+                // Everything else comes from the language table.
+                var command = Toolchains.Build(target, configuration, settings);
+
+                if (!command.CanRun)
+                    return command.Problem!;
+
+                (fileName, args) = (command.Executable, command.Arguments);
+                break;
+        }
 
         var result = await _runner.RunAsync(
             fileName, args, target.WorkingDirectory, timeout, cancellationToken);

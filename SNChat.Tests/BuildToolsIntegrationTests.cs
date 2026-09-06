@@ -1,5 +1,6 @@
-using Microsoft.Extensions.Logging.Abstractions;
+﻿using Microsoft.Extensions.Logging.Abstractions;
 using SNChat.BuildTools;
+using SNChat.Core.Models;
 
 namespace SNChat.Tests;
 
@@ -373,6 +374,109 @@ public class BuildToolsIntegrationTests : IDisposable
 
         Assert.Contains("arg:first", run.Output);
         Assert.Contains("arg:second one", run.Output);
+    }
+
+    /// <summary>
+    /// Python's "build" is a bytecode compile, which is the nearest thing to
+    /// asking whether the code even parses.
+    /// </summary>
+    [Fact]
+    public async Task A_python_syntax_error_is_reported_by_the_build()
+    {
+        var command = Toolchains.Build(
+            new BuildTarget(ProjectKind.Python, _directory, "py"), "Debug", new BuildToolSettings());
+
+        if (!command.CanRun)
+            return;
+
+        var directory = Path.Combine(_directory, "py-broken");
+        Directory.CreateDirectory(directory);
+        await File.WriteAllTextAsync(Path.Combine(directory, "main.py"), "def broken(:\n    pass\n");
+
+        var run = await Runner().RunAsync(
+            command.Executable,
+            new[] { "-m", "compileall", "-q", directory },
+            directory, Timeout);
+
+        Assert.True(run.Started, run.StartupError);
+        Assert.False(run.Succeeded, "a file that does not parse should fail the build");
+        Assert.Contains("main.py", run.Output);
+    }
+
+    [Fact]
+    public async Task Valid_python_compiles_cleanly()
+    {
+        var command = Toolchains.Build(
+            new BuildTarget(ProjectKind.Python, _directory, "py"), "Debug", new BuildToolSettings());
+
+        if (!command.CanRun)
+            return;
+
+        var directory = Path.Combine(_directory, "py-ok");
+        Directory.CreateDirectory(directory);
+        await File.WriteAllTextAsync(Path.Combine(directory, "main.py"), "print('hello from python')\n");
+
+        var run = await Runner().RunAsync(
+            command.Executable,
+            new[] { "-m", "compileall", "-q", directory },
+            directory, Timeout);
+
+        Assert.True(run.Succeeded, run.Output);
+    }
+
+    [Fact]
+    public async Task A_python_script_runs_and_its_output_comes_back()
+    {
+        var python = ToolchainLocator.FindOnPathAny("python", "python3");
+
+        if (python == null)
+            return;
+
+        var directory = Path.Combine(_directory, "py-run");
+        Directory.CreateDirectory(directory);
+        await File.WriteAllTextAsync(
+            Path.Combine(directory, "main.py"),
+            "import sys\nprint('args:', ' '.join(sys.argv[1:]))\nprint('stdin:', input())\n");
+
+        var run = await Runner().RunAsync(
+            python, new[] { Path.Combine(directory, "main.py"), "one", "two" },
+            directory, Timeout, CancellationToken.None, standardInput: "fed in\n");
+
+        Assert.True(run.Succeeded, run.Output);
+        Assert.Contains("args: one two", run.Output);
+        Assert.Contains("stdin: fed in", run.Output);
+    }
+
+    [Fact]
+    public void A_node_project_is_found_and_npm_resolves()
+    {
+        var directory = Path.Combine(_directory, "node-app");
+        Directory.CreateDirectory(directory);
+        File.WriteAllText(Path.Combine(directory, "package.json"),
+            """{ "name": "app", "version": "1.0.0" }""");
+
+        var target = ProjectLocator.Identify(directory);
+
+        Assert.NotNull(target);
+        Assert.Equal(ProjectKind.Node, target!.Kind);
+
+        // npm on Windows is npm.cmd, which a bare-name lookup misses.
+        var command = Toolchains.Build(target, "Debug", new BuildToolSettings());
+        Assert.True(command.CanRun, command.Problem);
+    }
+
+    [Fact]
+    public void Java_is_found_through_JAVA_HOME_when_it_is_not_on_the_path()
+    {
+        // Installing Android Studio produces exactly this: JAVA_HOME set, no
+        // java on the PATH. The same trap Visual Studio sets with cmake.
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("JAVA_HOME")))
+            return;
+
+        var java = ToolchainLocator.FindJavaTool("java");
+
+        Assert.NotNull(java);
+        Assert.True(File.Exists(java), $"resolved to {java}, which does not exist");
     }
 
     [Fact]

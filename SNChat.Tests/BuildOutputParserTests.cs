@@ -123,6 +123,46 @@ public class BuildOutputParserTests
     }
 
     [Fact]
+    public void A_real_kotlin_error_from_an_android_build_is_read()
+    {
+        // Captured verbatim from a real gradlew assembleDebug. Kotlin looks like
+        // nothing else here: a bare "e:" rather than the word error, a file://
+        // URI rather than a path, and no colon before the message. Before this
+        // was handled every Kotlin error was invisible and the model was told
+        // only that the build had failed.
+        var diagnostics = BuildOutputParser.Parse(
+            "e: file:///C:/ai-playground/AndroidFileFinder/app/src/main/java/com/snowpine/androidfilefinder/data/ZzSnchatProbe.kt:6:17 Unresolved reference 'nonexistentFunction'.");
+
+        var diagnostic = Assert.Single(diagnostics);
+        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+        Assert.Equal(6, diagnostic.Line);
+        Assert.Equal(17, diagnostic.Column);
+        Assert.EndsWith("ZzSnchatProbe.kt", diagnostic.File);
+        Assert.DoesNotContain("file:///", diagnostic.File);
+        Assert.Contains("Unresolved reference", diagnostic.Message);
+    }
+
+    [Fact]
+    public void A_kotlin_warning_is_not_reported_as_an_error()
+    {
+        var diagnostics = BuildOutputParser.Parse(
+            "w: file:///C:/app/src/main/java/Thing.kt:9:5 Variable 'x' is never used");
+
+        Assert.Equal(DiagnosticSeverity.Warning, Assert.Single(diagnostics).Severity);
+    }
+
+    [Fact]
+    public void A_kotlin_path_with_a_space_in_it_is_decoded()
+    {
+        // Windows projects live under folders with spaces often enough that a
+        // %20 left in the path would be the normal case, not the odd one.
+        var diagnostics = BuildOutputParser.Parse(
+            "e: file:///C:/My%20Projects/app/Thing.kt:3:1 Something went wrong");
+
+        Assert.Contains("My Projects", Assert.Single(diagnostics).File);
+    }
+
+    [Fact]
     public void A_cmake_error_names_the_file_and_line_it_came_from()
     {
         var diagnostics = BuildOutputParser.Parse(

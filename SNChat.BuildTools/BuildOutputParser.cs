@@ -71,6 +71,24 @@ public static class BuildOutputParser
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     /// <summary>
+    /// The Kotlin compiler, which looks like nothing else here:
+    ///
+    ///   e: file:///C:/app/src/main/java/Thing.kt:6:17 Unresolved reference 'foo'.
+    ///   w: file:///C:/app/src/main/java/Thing.kt:9:5 Variable is never used
+    ///
+    /// A bare "e:" or "w:" instead of the word error or warning, a file:// URI
+    /// rather than a path, and no colon between the position and the message.
+    /// Captured verbatim from a real Android build; without this every Kotlin
+    /// error was invisible and the model was told only that the build failed.
+    ///
+    /// The path is lazy so that the trailing ":line:col" wins over the colon in
+    /// the drive letter.
+    /// </summary>
+    private static readonly Regex KotlinPattern = new(
+        @"^\s*(?<sev>[ew]):\s+file:///(?<file>.+?):(?<line>\d+):(?<col>\d+)(?:\s+(?<msg>.*))?$",
+        RegexOptions.Compiled);
+
+    /// <summary>
     /// CMake's own complaints, which have no compiler behind them:
     ///
     ///   CMake Error at CMakeLists.txt:5 (add_executable):
@@ -113,7 +131,8 @@ public static class BuildOutputParser
             // pattern is loose enough to match it too, taking the ":12" into the
             // filename and losing the line number with it. CMake's own lines go
             // before MSBuild's for the same reason.
-            var diagnostic = MatchColonPosition(line)
+            var diagnostic = MatchKotlin(line)
+                ?? MatchColonPosition(line)
                 ?? MatchCMake(line)
                 ?? MatchMsBuild(line)
                 ?? MatchGradle(line);
@@ -165,6 +184,37 @@ public static class BuildOutputParser
     private static readonly Regex ProjectSuffixPattern = new(
         @"\s*\[[^\]]*\.(?:vcx|cs|vb|fs|sln)proj\]\s*$",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static BuildDiagnostic? MatchKotlin(string line)
+    {
+        var match = KotlinPattern.Match(line);
+
+        if (!match.Success)
+            return null;
+
+        return new BuildDiagnostic(
+            match.Groups["sev"].Value == "e" ? DiagnosticSeverity.Error : DiagnosticSeverity.Warning,
+            DecodeFileUri(match.Groups["file"].Value),
+            ParseInt(match.Groups["line"].Value),
+            ParseInt(match.Groups["col"].Value),
+            string.Empty,
+            match.Groups["msg"].Value.Trim());
+    }
+
+    /// <summary>
+    /// Turns the path out of a file:// URI back into something that looks like a
+    /// path, so the model reads C:\app\Thing.kt rather than a URI. Percent
+    /// escapes are decoded because any project under a folder with a space in it
+    /// - which is most of them on Windows - arrives with %20 in the path.
+    /// </summary>
+    private static string DecodeFileUri(string value)
+    {
+        var decoded = Uri.UnescapeDataString(value);
+
+        return OperatingSystem.IsWindows()
+            ? decoded.Replace('/', '\\')
+            : decoded;
+    }
 
     private static BuildDiagnostic? MatchColonPosition(string line)
     {

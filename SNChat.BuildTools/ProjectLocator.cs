@@ -14,7 +14,19 @@ public enum ProjectKind
     /// A CMake project - the usual shape of a C++ project, and what Visual
     /// Studio opens when you point it at a folder rather than a solution.
     /// </summary>
-    CMake
+    CMake,
+
+    /// <summary>Maven, from a pom.xml. Gradle Java is <see cref="Gradle"/>.</summary>
+    Maven,
+
+    /// <summary>Anything with a package.json - Node, or TypeScript built through it.</summary>
+    Node,
+
+    /// <summary>Python, from pyproject.toml, requirements.txt or setup.py.</summary>
+    Python,
+
+    /// <summary>Ruby, from a Gemfile. Rails is the usual case.</summary>
+    Ruby
 }
 
 /// <summary>Something the tools can build, and how.</summary>
@@ -102,8 +114,53 @@ public static class ProjectLocator
         if (File.Exists(cmake))
             return new BuildTarget(ProjectKind.CMake, cmake, Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar)));
 
+        return IdentifyByMarker(path);
+    }
+
+    /// <summary>
+    /// Languages identified by a single well-known file at the root.
+    ///
+    /// Order matters where a folder carries more than one marker, which is
+    /// common and not a mistake: a Python service with a package.json for its
+    /// front-end assets, or a Java project with a requirements.txt for a helper
+    /// script. The most specific and least often incidental marker wins, so a
+    /// pom.xml beats a package.json and both beat a bare requirements.txt.
+    ///
+    /// It will still sometimes pick the wrong one. list_projects reports the
+    /// kind it decided on so that is visible rather than silent.
+    /// </summary>
+    private static readonly (string Marker, ProjectKind Kind)[] Markers =
+    {
+        ("pom.xml", ProjectKind.Maven),
+        ("package.json", ProjectKind.Node),
+        ("Gemfile", ProjectKind.Ruby),
+        ("pyproject.toml", ProjectKind.Python),
+        ("setup.py", ProjectKind.Python),
+        ("requirements.txt", ProjectKind.Python)
+    };
+
+    private static BuildTarget? IdentifyByMarker(string directory)
+    {
+        var name = Path.GetFileName(directory.TrimEnd(Path.DirectorySeparatorChar));
+
+        foreach (var (marker, kind) in Markers)
+        {
+            var candidate = Path.Combine(directory, marker);
+
+            if (File.Exists(candidate))
+                return new BuildTarget(kind, candidate, name);
+        }
+
         return null;
     }
+
+    /// <summary>
+    /// Whether a Ruby project looks like Rails, which changes how its tests are
+    /// run. Judged by config/application.rb, the file Rails itself boots from.
+    /// </summary>
+    public static bool IsRails(BuildTarget target) =>
+        target.Kind == ProjectKind.Ruby
+        && File.Exists(Path.Combine(target.WorkingDirectory, "config", "application.rb"));
 
     public const string CMakeListsName = "CMakeLists.txt";
 

@@ -103,6 +103,59 @@ public static class ToolchainLocator
         return null;
     }
 
+    /// <summary>
+    /// An interpreter or language tool by name, trying each candidate in turn.
+    /// Python is the reason for the list: "python" and "python3" both exist and
+    /// which one is present differs by machine and by installer.
+    /// </summary>
+    public static string? FindOnPathAny(params string[] names)
+    {
+        foreach (var name in names)
+        {
+            var found = FindOnPath(name);
+
+            if (found != null)
+                return found;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// java, javac and the rest of the JDK.
+    ///
+    /// Worth its own method because JAVA_HOME is very often set while the JDK is
+    /// not on the PATH - installing Android Studio produces exactly that, with
+    /// JAVA_HOME pointing into its bundled runtime. Checking PATH alone reports
+    /// no Java on a machine that plainly has one, which is the same trap Visual
+    /// Studio sets with cmake.
+    /// </summary>
+    public static string? FindJavaTool(string name)
+    {
+        var onPath = FindOnPath(name);
+
+        if (onPath != null)
+            return onPath;
+
+        var javaHome = Environment.GetEnvironmentVariable("JAVA_HOME");
+
+        if (string.IsNullOrWhiteSpace(javaHome))
+            return null;
+
+        try
+        {
+            var candidate = Path.Combine(
+                javaHome.Trim(), "bin",
+                OperatingSystem.IsWindows() ? name + ".exe" : name);
+
+            return File.Exists(candidate) ? candidate : null;
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>The tool as found on PATH, or null. Adds .exe on Windows.</summary>
     public static string? FindOnPath(string name)
     {

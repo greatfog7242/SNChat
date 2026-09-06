@@ -28,6 +28,25 @@ public class RunProgramTool : ITool
     private static readonly string[] RunnableExtensions =
         { ".exe", ".com", ".bat", ".cmd" };
 
+    /// <summary>
+    /// Scripts, which are run by handing them to an interpreter rather than by
+    /// launching them. Without this the tool could only run compiled programs,
+    /// so "run what you just wrote" would work for C++ and not for Python -
+    /// which is most of what people actually write.
+    ///
+    /// The interpreter is resolved through <see cref="ToolchainLocator"/> for
+    /// the usual reason: installed and not on the PATH is the normal state.
+    /// </summary>
+    private static readonly Dictionary<string, string[]> Interpreters =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            [".py"] = new[] { "python", "python3" },
+            [".js"] = new[] { "node" },
+            [".mjs"] = new[] { "node" },
+            [".cjs"] = new[] { "node" },
+            [".rb"] = new[] { "ruby" }
+        };
+
     private readonly SettingsService _settingsService;
     private readonly ProjectContext _projects;
     private readonly ProcessRunner _runner;
@@ -36,10 +55,11 @@ public class RunProgramTool : ITool
     public string Name => "run_program";
 
     public string Description =>
-        "Run a program and return what it printed, plus its exit code. Use this " +
-        "after build_project to check that the program actually works, and to " +
-        "read its output when it does not. The program must be inside an allowed " +
-        "project folder - normally something you just built there.";
+        "Run a program or script and return what it printed, plus its exit code. " +
+        "Handles compiled executables, and .py, .js, .rb and .jar files by " +
+        "invoking their interpreter. Use it after writing or building something " +
+        "to check that it actually works, and to read its output when it does " +
+        "not. The file must be inside an allowed project folder.";
 
     public ToolParameterSchema Parameters => new()
     {
@@ -103,21 +123,57 @@ public class RunProgramTool : ITool
                    "the executable the build produced.";
 
         var extension = Path.GetExtension(resolved);
+        var programArguments = ReadArguments(arguments);
 
-        if (!RunnableExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase))
+        // Compiled programs are launched directly; scripts are handed to their
+        // interpreter, with the script itself as the first argument.
+        string executable;
+
+        if (RunnableExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase))
         {
+            executable = resolved;
+        }
+        else if (extension.Equals(".jar", StringComparison.OrdinalIgnoreCase))
+        {
+            // Java is worth its own branch: JAVA_HOME is very often set while
+            // java is not on the PATH, which is what installing Android Studio
+            // leaves behind.
+            var java = ToolchainLocator.FindJavaTool("java");
+
+            if (java == null)
+                return "Java could not be found, on the PATH or through JAVA_HOME.";
+
+            executable = java;
+            programArguments = new List<string> { "-jar", resolved }.Concat(programArguments).ToList();
+        }
+        else if (Interpreters.TryGetValue(extension, out var names))
+        {
+            var interpreter = ToolchainLocator.FindOnPathAny(names);
+
+            if (interpreter == null)
+            {
+                return $"Nothing that can run '{extension}' files was found - " +
+                       $"looked for {string.Join(" and ", names)} on the PATH.";
+            }
+
+            executable = interpreter;
+            programArguments = new List<string> { resolved }.Concat(programArguments).ToList();
+        }
+        else
+        {
+            var runnable = RunnableExtensions.Concat(Interpreters.Keys).Append(".jar");
+
             return $"'{Path.GetFileName(resolved)}' is not something this tool will run. " +
-                   $"Expected one of {string.Join(", ", RunnableExtensions)}.";
+                   $"Expected one of {string.Join(", ", runnable)}.";
         }
 
-        var programArguments = ReadArguments(arguments);
         var standardInput = arguments.TryGetValue("stdin", out var raw) ? raw?.ToString() : null;
 
-        _logger.LogInformation("Running {Path} with {Count} argument(s)",
-            resolved, programArguments.Count);
+        _logger.LogInformation("Running {Path} via {Executable} with {Count} argument(s)",
+            resolved, Path.GetFileName(executable), programArguments.Count);
 
         var result = await _runner.RunAsync(
-            resolved,
+            executable,
             programArguments,
             // Its own folder, so a program that reads files beside it behaves the
             // way it would if the user had double-clicked it.
