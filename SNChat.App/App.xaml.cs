@@ -126,6 +126,12 @@ public partial class App : Application
 
         services.AddSingleton<AgentDefinitionService>();
 
+        // Folders the user has allowed for this session only, and the dialog
+        // that asks. Not saved: a grant answers "may I read this, now", and
+        // should not still be in force next week.
+        services.AddSingleton<SessionAccessGrants>();
+        services.AddSingleton<IAccessPrompt, Services.DialogAccessPrompt>();
+
         // Constructed by hand because it is part of a cycle: the tool needs the
         // registry to know what it may delegate, the registry factory registers
         // the tool, and the providers are built from the registry. Passing
