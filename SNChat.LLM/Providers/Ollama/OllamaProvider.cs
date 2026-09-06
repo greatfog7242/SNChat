@@ -424,28 +424,8 @@ public class OllamaProvider : BaseLLMProvider
     /// <summary>
     /// Flattens Ollama's JSON argument object into plain CLR values for ITool.
     /// </summary>
-    private static Dictionary<string, object?> UnpackArguments(JsonElement arguments)
-    {
-        var result = new Dictionary<string, object?>();
-
-        if (arguments.ValueKind != JsonValueKind.Object)
-            return result;
-
-        foreach (var property in arguments.EnumerateObject())
-        {
-            result[property.Name] = property.Value.ValueKind switch
-            {
-                JsonValueKind.String => property.Value.GetString(),
-                JsonValueKind.Number => property.Value.TryGetInt64(out var l) ? l : property.Value.GetDouble(),
-                JsonValueKind.True => true,
-                JsonValueKind.False => false,
-                JsonValueKind.Null => null,
-                _ => property.Value.GetRawText()
-            };
-        }
-
-        return result;
-    }
+    private static Dictionary<string, object?> UnpackArguments(JsonElement arguments) =>
+        ToolArgumentReader.Read(arguments);
 
     private class StreamItem
     {

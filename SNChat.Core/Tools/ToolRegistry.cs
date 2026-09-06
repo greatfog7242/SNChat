@@ -45,6 +45,14 @@ public class ToolRegistry : IToolRegistry
 
             var content = await tool.ExecuteAsync(call.Arguments, cancellationToken);
 
+            // The head of the result, which is where a tool that refused says
+            // why. Only the invocation was logged before, so a tool failing
+            // every time was invisible here and showed up only as the model
+            // giving up and trying something else.
+            _logger.LogDebug("Tool {ToolName} returned: {Result}",
+                call.Name,
+                content.Length <= 300 ? content : content[..300] + "...");
+
             return new ToolResult
             {
                 ToolCallId = call.Id,

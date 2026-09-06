@@ -595,23 +595,7 @@ public class OpenRouterProvider : BaseLLMProvider
             return result;
         }
 
-        if (root.ValueKind != JsonValueKind.Object)
-            return result;
-
-        foreach (var property in root.EnumerateObject())
-        {
-            result[property.Name] = property.Value.ValueKind switch
-            {
-                JsonValueKind.String => property.Value.GetString(),
-                JsonValueKind.Number => property.Value.TryGetInt64(out var l) ? l : property.Value.GetDouble(),
-                JsonValueKind.True => true,
-                JsonValueKind.False => false,
-                JsonValueKind.Null => null,
-                _ => property.Value.GetRawText()
-            };
-        }
-
-        return result;
+        return ToolArgumentReader.Read(root);
     }
 
     /// <summary>
