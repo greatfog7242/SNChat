@@ -15,6 +15,7 @@ Working branch `cache-search-images`, **pushed and in sync with origin**. Newest
 
 | Commit | What |
 |---|---|
+| `49729ea` | `git_status` and `git_commit` — the assistant can save its own work |
 | `964f283` | Checkpoint taken before the work; auto-continue marked as such |
 | `d7ce24c` | Real-model probes for the loop; pytest falls back to unittest |
 | `5d6e4a5` | Autonomous loop: `task_complete`, budgets, git checkpoint |
@@ -34,7 +35,7 @@ Working branch `cache-search-images`, **pushed and in sync with origin**. Newest
 
 ## Uncommitted work in the tree
 
-Nothing. Everything is committed and pushed as of `27d901a`.
+Nothing. Committed as of `49729ea`; push with `git push origin cache-search-images`.
 
 **The published `publish\SNChat.App.exe` predates these two fixes** (built 15:36). Republish
 before another unattended run, or it will still stop to ask for a commit.
@@ -54,9 +55,6 @@ already does the summarising half of what a subagent must return.
 
 Known gaps, in rough order of how much they matter:
 
-- **The assistant cannot commit.** It has no git tool, so during a run it asks the user to
-  commit instead, which is not really unattended. Worth considering a narrow git tool
-  (add/commit only, inside the project root).
 - **Tool results are never shown to the user.** During an unattended run that is most of
   what is happening; `AgentStatus` reports only "step N of M".
 - Maven and Ruby/Rails remain written to spec; neither is installed here.
@@ -65,7 +63,7 @@ Known gaps, in rough order of how much they matter:
 
 ```bash
 dotnet build SNChat.slnx
-dotnet test SNChat.Tests/SNChat.Tests.csproj      # 331 passing as of 2026-09-06
+dotnet test SNChat.Tests/SNChat.Tests.csproj      # 341 passing as of 2026-09-06
 
 # Publish: single file. IncludeNativeLibrariesForSelfExtract is NOT optional -
 # without it five native WPF DLLs land beside the exe and it is not single-file.
@@ -130,7 +128,7 @@ the real thing, because more than one bug this week survived a green build.
 | `GoogleWebSource` / `GoogleImageSource` | Complete and wired, **never exercised** against a successful response — the API appears closed to new projects |
 | OpenRouter provider | Argument handling fixed alongside Ollama's but **not re-tested live** after that change |
 
-Test count is **331 passing** at `964f283`. If your count is lower, check you are on that
+Test count is **341 passing** at `49729ea`. If your count is lower, check you are on that
 commit before assuming you broke something.
 
 Also stale and not to be trusted: `README.md`, `SESSION_SUMMARY.md`, `CHANGELOG.md` all
