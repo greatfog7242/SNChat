@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using YamlDotNet.Serialization;
@@ -226,14 +226,12 @@ public class StorageService : IStorageService
 
     private Conversation ParseMarkdown(string content, string filePath)
     {
-        // Split frontmatter and body
-        var parts = content.Split(new[] { "---" }, StringSplitOptions.None);
-
-        if (parts.Length < 3)
+        // Split on delimiter lines, not on the substring. A title containing
+        // three hyphens - which every attachment-first conversation has, since
+        // the title comes from "--- Attached image: ... ---" - used to tear the
+        // frontmatter in half and make the conversation permanently unreadable.
+        if (!MarkdownDocument.TrySplit(content, out var frontmatterYaml, out var body))
             throw new FormatException("Invalid markdown format: missing frontmatter");
-
-        var frontmatterYaml = parts[1].Trim();
-        var body = string.Join("---", parts.Skip(2)).Trim();
 
         // Parse frontmatter
         var frontmatter = _yamlDeserializer.Deserialize<Dictionary<string, object>>(frontmatterYaml);

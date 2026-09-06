@@ -242,17 +242,15 @@ public class TemplateService
 
     private PromptTemplate Parse(string content, string filePath)
     {
-        var parts = content.Split(new[] { "---" }, StringSplitOptions.None);
-        if (parts.Length < 3)
+        // Split on delimiter lines rather than the substring: a prompt or a
+        // description containing three hyphens would otherwise tear the
+        // frontmatter in half.
+        if (!MarkdownDocument.TrySplit(content, out var frontmatterYaml, out var body))
             throw new FormatException("Template is missing its frontmatter");
 
         var frontmatter = _yamlDeserializer
-            .Deserialize<Dictionary<string, object>>(parts[1].Trim())
+            .Deserialize<Dictionary<string, object>>(frontmatterYaml)
             ?? new Dictionary<string, object>();
-
-        // Anything after the closing --- is the body; rejoin in case the prompt
-        // itself contains a --- line.
-        var body = string.Join("---", parts.Skip(2)).TrimStart('\r', '\n');
 
         return new PromptTemplate
         {
