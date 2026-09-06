@@ -30,6 +30,7 @@ public partial class ChatViewModel : ObservableObject
     private readonly RulesService _rules;
     private readonly AgentSignals _signals;
     private readonly GitCheckpointService _checkpoints;
+    private readonly ActiveModel _activeModel;
 
     /// <summary>
     /// Why the last turn ended. The cancellation token source is disposed and
@@ -366,6 +367,7 @@ public partial class ChatViewModel : ObservableObject
         RulesService rules,
         AgentSignals signals,
         GitCheckpointService checkpoints,
+        ActiveModel activeModel,
         ILogger<ChatViewModel> logger)
     {
         _providerFactory = providerFactory;
@@ -380,6 +382,7 @@ public partial class ChatViewModel : ObservableObject
         _rules = rules;
         _signals = signals;
         _checkpoints = checkpoints;
+        _activeModel = activeModel;
         _logger = logger;
 
         // Load available providers
@@ -403,6 +406,21 @@ public partial class ChatViewModel : ObservableObject
         // Only from here on does a change represent a choice worth saving;
         // everything above is the restore itself.
         _selectionRestored = true;
+
+        // Not folded into PersistSelection, which skips everything before the
+        // restore finishes. A subagent started in the first seconds of the
+        // session still has to know what to run on.
+        SyncActiveModel();
+    }
+
+    /// <summary>
+    /// Tells the tools which provider and model the user is on, so a subagent
+    /// runs on the same thing this conversation does.
+    /// </summary>
+    private void SyncActiveModel()
+    {
+        _activeModel.ProviderName = CurrentProviderName;
+        _activeModel.Model = CurrentModel;
     }
 
     /// <summary>
@@ -636,6 +654,7 @@ public partial class ChatViewModel : ObservableObject
 
     partial void OnCurrentModelChanged(string value)
     {
+        SyncActiveModel();
         PersistSelection();
 
         // A different model is a different window, so the same conversation can
@@ -648,6 +667,7 @@ public partial class ChatViewModel : ObservableObject
         try
         {
             _currentProvider = _providerFactory.GetProvider(value);
+            SyncActiveModel();
             PersistSelection();
             _ = LoadAvailableModelsAsync();
             _logger.LogInformation("Switched to provider: {Provider}", value);

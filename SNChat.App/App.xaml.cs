@@ -14,6 +14,7 @@ using SNChat.LLM.Providers.Ollama;
 using SNChat.LLM.Providers.FreeToken;
 using SNChat.LLM.Providers.OpenRouter;
 using SNChat.LLM.Services;
+using SNChat.LLM.Tools;
 using SNChat.BuildTools;
 using SNChat.Core.Tools;
 using SNChat.WebTools;
@@ -118,6 +119,24 @@ public partial class App : Application
         // the tools are built once at startup and need to read it per call.
         services.AddSingleton<ProjectContext>();
 
+        // Which provider and model the conversation is on, for the same reason:
+        // a subagent has to run on something, and there is no path from inside a
+        // tool call back to the conversation that made it.
+        services.AddSingleton<ActiveModel>();
+
+        services.AddSingleton<AgentDefinitionService>();
+
+        // Constructed by hand because it is part of a cycle: the tool needs the
+        // registry to know what it may delegate, the registry factory registers
+        // the tool, and the providers are built from the registry. Passing
+        // functions defers both resolutions until after everything is built.
+        services.AddSingleton(sp => new RunSubagentTool(
+            sp.GetRequiredService<AgentDefinitionService>(),
+            () => sp.GetRequiredService<ILLMProviderFactory>(),
+            () => sp.GetRequiredService<IToolRegistry>(),
+            sp.GetRequiredService<ActiveModel>(),
+            sp.GetRequiredService<ILogger<RunSubagentTool>>()));
+
         services.AddSingleton<IImageResizer, Services.WpfImageResizer>();
         services.AddSingleton<AttachmentService>();
 
@@ -197,6 +216,15 @@ public partial class App : Application
             // nothing, and it is how the assistant finds out why one of its own
             // calls was refused.
             registry.Register(sp.GetRequiredService<ReadAppLogTool>());
+
+            // Delegation, offered only when there is somebody to delegate to.
+            // Its description lists the available agents, so registering it with
+            // none would spend context advertising an empty menu.
+            var agents = sp.GetRequiredService<AgentDefinitionService>();
+            agents.SeedDefaultsOnFirstRun();
+
+            if (agents.HasAny())
+                registry.Register(sp.GetRequiredService<RunSubagentTool>());
 
             // Skills are offered only when at least one template is marked
             // invocable. Two tool definitions are sent on every request, so
