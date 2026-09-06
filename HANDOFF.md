@@ -15,6 +15,8 @@ Working branch `cache-search-images`, **ahead of origin and not pushed**. Newest
 
 | Commit | What |
 |---|---|
+| `beef193` | Conversation remembers its instructions; rules and skills editors |
+| `40259b6` | Frontmatter split fix — conversations stopped being unreadable |
 | `c4a9149` | Standing rules from RULES.md, and skills the model can invoke |
 | `f7d7f55` | Python, Node, Maven and Ruby; scripts in `run_program`; Kotlin diagnostics |
 | `ef1a0f0` | Project picker in the toolbar and a Projects tab in Settings |
@@ -28,29 +30,25 @@ Working branch `cache-search-images`, **ahead of origin and not pushed**. Newest
 
 ## Uncommitted work in the tree
 
-Nothing. Everything is committed as of `c4a9149`.
+Nothing. Everything is committed as of `beef193`.
 
 **Not yet pushed.** Run `git log --oneline origin/cache-search-images..HEAD` for what is
 pending — a fixed number written here goes stale the moment another commit lands.
 
 ## Where to pick up
 
-Foundation and Stages 1–2 are done. Stage 3 works but is not finished.
+**Foundation and Stages 1–3 are done.** The assistant can be pointed at a project, build,
+test, run and debug in it across .NET, C++, Python, Node, Java and Android, and be briefed
+with rules and skills that persist.
 
-**Finish Stage 3 first — two things are outstanding:**
-
-1. **The active system prompt is still not persisted.** It is lost on restart and when
-   loading an old conversation. This predates the rules work and was listed in
-   `DEVELOPMENT_PLAN.md` as part of this stage. Store it with the conversation.
-2. **Neither rules nor skills have a Settings editor.** Both are file-edited today:
-   `RULES.md` under `%APPDATA%\SNChat` or a project root, and `invocable: true` hand-added
-   to a template's frontmatter. Templates already have a picker window that could carry the
-   checkbox.
-
-**Then Stage 4, looping** — and note its prerequisite, which is the largest hidden cost in
-the plan: tool calls and results are never persisted, so a turn-to-turn loop would forget
-what its own tools returned. `MessageRole` has only `User, Assistant, System`. Adding
-`MessageRole.Tool` plus storage has to come before the loop is worth building.
+**Next is Stage 4, looping — and read its prerequisite first.** Tool calls and results are
+never persisted. Both providers build the tool transcript inside one `GenerateStreamAsync`
+call and discard it, and `MessageRole` has only `User, Assistant, System`. A turn-to-turn
+loop would therefore forget what its own tools returned, seeing only the prose it wrote
+about them. Adding `MessageRole.Tool` plus `MessageHeader`/`StorageService` support has to
+come before the loop is worth building; `DEVELOPMENT_PLAN.md` lists the other hazards
+(a separate `IsAgentRunning` flag, cancellation that survives the `finally`, the compaction
+race, and the single-slot meter fields).
 
 Still unverifiable on this machine: Maven and Ruby/Rails, neither being installed.
 
@@ -58,7 +56,7 @@ Still unverifiable on this machine: Maven and Ruby/Rails, neither being installe
 
 ```bash
 dotnet build SNChat.slnx
-dotnet test SNChat.Tests/SNChat.Tests.csproj      # 276 passing as of 2026-09-06
+dotnet test SNChat.Tests/SNChat.Tests.csproj      # 289 passing as of 2026-09-06
 
 # Publish: single file. IncludeNativeLibrariesForSelfExtract is NOT optional -
 # without it five native WPF DLLs land beside the exe and it is not single-file.
@@ -99,8 +97,8 @@ powershell -NoProfile -Command "$env:Path = [Environment]::GetEnvironmentVariabl
   and searxng at `localhost:8888`. ~19 MCP tools, costing roughly 16k prompt tokens.
 - Test projects in `C:\ai-playground`: `well_done` (C++/CMake), `FolderTree` (.NET),
   `AndroidFileFinder` (real Gradle/Kotlin project, useful for testing the untested Android path).
-- Several conversation files under `conversations\2026-08\` are corrupt (bad YAML, missing
-  `created`) and log warnings on every load. Pre-existing, harmless, noisy.
+- Conversations that used to fail to load now load. They were never corrupt: see the
+  frontmatter finding below. Loaded count went from 36 to 42.
 
 ## What is verified, and what is only written to spec
 
@@ -123,7 +121,7 @@ the real thing, because more than one bug this week survived a green build.
 | `GoogleWebSource` / `GoogleImageSource` | Complete and wired, **never exercised** against a successful response — the API appears closed to new projects |
 | OpenRouter provider | Argument handling fixed alongside Ollama's but **not re-tested live** after that change |
 
-Test count is **276 passing** at `c4a9149`. If your count is lower, check you are on that
+Test count is **289 passing** at `beef193`. If your count is lower, check you are on that
 commit before assuming you broke something.
 
 Also stale and not to be trusted: `README.md`, `SESSION_SUMMARY.md`, `CHANGELOG.md` all
@@ -450,6 +448,21 @@ in the streaming overlay (status chunks are shown but never persisted).
 ### Non-obvious findings (worth not rediscovering)
 
 #### From 2026-09-05/06 (context meter, build tools, tool arguments)
+
+**Frontmatter was split on the substring "---", which silently lost conversations.**
+`content.Split("---")` splits wherever those three characters appear, not on delimiter
+lines. A conversation whose first message carried an attachment is auto-titled
+`--- Attached image: photo.jpg ---`; YAML writes that as a folded scalar across several
+lines; the reader then parsed frontmatter only as far as the first hyphens, `created` went
+missing, and the file threw `KeyNotFoundException` forever. The files on disk were written
+perfectly well - the reader was broken - and six conversations were sitting unreadable.
+These had been dismissed as "corrupt, pre-existing, harmless" three times in one session
+before anyone actually opened one. `MarkdownDocument.TrySplit` now splits on delimiter
+lines; `TemplateService` and `ProjectService` had copied the same broken split. A first
+fix that trimmed both ends was still wrong: YAML indents a block scalar's content by two
+spaces, so a value containing three hyphens yields a line reading `  ---`, which trimming
+turned back into a delimiter. A delimiter is a line at column zero and nothing else. Caught
+only because a test round-tripped a multi-line system prompt through real YAML.
 
 **The Kotlin compiler's diagnostics look like nothing else.** A real Android build prints
 `e: file:///C:/app/src/.../Thing.kt:6:17 Unresolved reference 'foo'.` — a bare `e:` instead

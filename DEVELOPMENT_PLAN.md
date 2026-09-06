@@ -13,8 +13,8 @@
 |---|---|
 | Foundation — the Project concept | **done** |
 | 1 — Close the loop (run and debug) | **done** |
-| 2 — Languages | **in progress** |
-| 3 — Harness: rules and skills | not started |
+| 2 — Languages | **done** (Maven and Ruby unverifiable here) |
+| 3 — Harness: rules and skills | **done** |
 | 4 — Looping | not started |
 | 5 — Subagents | not started |
 
