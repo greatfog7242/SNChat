@@ -159,6 +159,8 @@ public partial class App : Application
         services.AddSingleton<BuildProjectTool>();
         services.AddSingleton<RunTestsTool>();
         services.AddSingleton<RunProgramTool>();
+        services.AddSingleton<GitStatusTool>();
+        services.AddSingleton<GitCommitTool>();
 
         // Skills: prompt templates the user has marked invocable.
         services.AddSingleton<ListSkillsTool>();
@@ -232,6 +234,14 @@ public partial class App : Application
                 // Only meaningful where there is a project to work in, which is
                 // the same condition as the rest of these.
                 registry.Register(sp.GetRequiredService<TaskCompleteTool>());
+
+                // Seeing what changed and committing it, and nothing else. No
+                // push, no reset - see BuildToolSettings.AllowCommit.
+                if (buildTools.AllowCommit)
+                {
+                    registry.Register(sp.GetRequiredService<GitStatusTool>());
+                    registry.Register(sp.GetRequiredService<GitCommitTool>());
+                }
             }
 
             return registry;

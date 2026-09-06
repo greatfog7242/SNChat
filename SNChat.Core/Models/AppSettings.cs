@@ -1,4 +1,4 @@
-namespace SNChat.Core.Models;
+﻿namespace SNChat.Core.Models;
 
 public class AppSettings
 {
@@ -56,6 +56,21 @@ public class BuildToolSettings
     /// there.
     /// </summary>
     public bool AllowRun { get; set; } = true;
+
+    /// <summary>
+    /// Whether the assistant may commit the project's changes.
+    ///
+    /// Narrow on purpose: it can stage and commit, and nothing else. Pushing is
+    /// outward-facing and irreversible from here; reset, checkout and clean
+    /// destroy work, including the checkpoint that makes a run undoable. None of
+    /// those are offered at all.
+    ///
+    /// Committing stays safe because the checkpoint taken before an unattended
+    /// run points at the commit it started from, so resetting to it discards
+    /// anything committed since. Without this, a run that needs to save stops
+    /// and asks - which is not really working on its own.
+    /// </summary>
+    public bool AllowCommit { get; set; } = true;
 
     /// <summary>
     /// Time limit for one program run, separate from and much shorter than the
