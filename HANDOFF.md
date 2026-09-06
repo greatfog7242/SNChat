@@ -11,10 +11,11 @@
 
 ## Branch and commits
 
-Working branch `cache-search-images`, **two commits ahead of origin**. Newest first:
+Working branch `cache-search-images`, **ahead of origin and not pushed**. Newest first:
 
 | Commit | What |
 |---|---|
+| `95883e4` | `read_app_log`, `run_tests` filter, tool-name collision warning |
 | `5651b12` | Projects, and `run_program` — the assistant can run what it builds |
 | `2e88414` | Tool arguments keep their shape (fixed `edit_file` failing 100% of the time) |
 | `78af4eb` | Build and test tools (`list_projects`, `build_project`, `run_tests`) |
@@ -24,9 +25,10 @@ Working branch `cache-search-images`, **two commits ahead of origin**. Newest fi
 
 ## Uncommitted work in the tree
 
-Nothing. Everything below is committed as of `5651b12`.
+Nothing. Everything is committed as of `95883e4`.
 
-**Not yet pushed** — the branch is ahead of `origin/cache-search-images` by two commits.
+**Not yet pushed.** Run `git log --oneline origin/cache-search-images..HEAD` for what is
+pending — a fixed number written here goes stale the moment another commit lands.
 
 ## Active plan
 
@@ -40,7 +42,7 @@ step-by-step approved **per project**.
 | Stage | Contents | Status |
 |---|---|---|
 | Foundation | `Project` model + `ProjectService`, `Conversation.ProjectId`, project selector UI, folder picker | **in progress** — model/service/permissions done, UI not started |
-| 1 | `run_program` (+stdin/args), `run_tests` filter, `read_app_log`, `ProcessRunner` stdin/stderr | **in progress** — `run_program` + `ProcessRunner` done and verified against real programs; `run_tests` filter and `read_app_log` not started |
+| 1 | `run_program` (+stdin/args), `run_tests` filter, `read_app_log`, `ProcessRunner` stdin/stderr | **tools done** — all five registered and verified in the running app. UI (project selector, Settings tab, folder picker) still to do |
 | 2 | Python, Node/TS, Java, Rails, Kotlin/Android toolchains | not started |
 | 3 | Rules (`RULES.md` per project) + model-invocable skills | not started |
 | 4 | Autonomous loop, `task_complete`, git checkpoint, budgets | not started |
@@ -62,7 +64,7 @@ Three constraints discovered while planning, which shape the work:
 
 ```bash
 dotnet build SNChat.slnx
-dotnet test SNChat.Tests/SNChat.Tests.csproj      # 211 passing as of 2026-09-06
+dotnet test SNChat.Tests/SNChat.Tests.csproj      # 227 passing as of 2026-09-06
 
 # Publish: single file. IncludeNativeLibrariesForSelfExtract is NOT optional -
 # without it five native WPF DLLs land beside the exe and it is not single-file.
@@ -123,7 +125,7 @@ the real thing, because more than one bug this week survived a green build.
 | `GoogleWebSource` / `GoogleImageSource` | Complete and wired, **never exercised** against a successful response — the API appears closed to new projects |
 | OpenRouter provider | Argument handling fixed alongside Ollama's but **not re-tested live** after that change |
 
-Test count is **211 passing** at `5651b12`. If your count is lower, check you are on that
+Test count is **227 passing** at `95883e4`. If your count is lower, check you are on that
 commit before assuming you broke something.
 
 Also stale and not to be trusted: `README.md`, `SESSION_SUMMARY.md`, `CHANGELOG.md` all
