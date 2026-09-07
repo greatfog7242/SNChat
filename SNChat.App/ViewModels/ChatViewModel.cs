@@ -869,6 +869,13 @@ public partial class ChatViewModel : ObservableObject
         var checkpoint = await _checkpoints.PrepareAsync(
             CurrentProject!.RootPath, CurrentProject.RequireGitCheckpoint);
 
+        // A folder that is simply not a repository yet is the one failure worth
+        // offering to fix. Being told to go and run three commands, at the
+        // moment you were trying to start work, is a dead end - and creating a
+        // repository takes nothing away, it adds the undo the refusal wanted.
+        if (!checkpoint.CanProceed && checkpoint.Problem == CheckpointProblem.NotARepository)
+            checkpoint = await OfferToCreateRepositoryAsync(checkpoint);
+
         if (!checkpoint.CanProceed)
         {
             AgentStatus = "Answering once only: " + checkpoint.Message;
@@ -890,6 +897,48 @@ public partial class ChatViewModel : ObservableObject
 
         AgentStatus = checkpoint.Message;
         return true;
+    }
+
+    /// <summary>
+    /// Offers to put the project folder under git, and takes the checkpoint if
+    /// the user agrees. Returns the original refusal if they decline or it
+    /// fails, so the caller carries on refusing exactly as before.
+    /// </summary>
+    private async Task<CheckpointResult> OfferToCreateRepositoryAsync(CheckpointResult refusal)
+    {
+        var answer = MessageBox.Show(
+            $"'{CurrentProject!.RootPath}' is not a git repository, so there would be " +
+            $"no way back from an unattended run.{Environment.NewLine}{Environment.NewLine}" +
+            "Set one up now? This creates a repository in that folder and commits " +
+            "everything already in it as the point to return to. Nothing is deleted " +
+            "or changed, and nothing is sent anywhere." +
+            $"{Environment.NewLine}{Environment.NewLine}" +
+            "If the folder holds build output or downloaded packages, those will be " +
+            "committed too - add a .gitignore first if that matters." +
+            $"{Environment.NewLine}{Environment.NewLine}" +
+            "Choosing No answers your message once, without working unattended.",
+            "Put this project under git?",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question,
+            MessageBoxResult.No);
+
+        if (answer != MessageBoxResult.Yes)
+        {
+            _logger.LogInformation("Declined to create a repository in {Folder}", CurrentProject.RootPath);
+            return refusal;
+        }
+
+        AgentStatus = "Setting up git...";
+
+        var created = await _checkpoints.InitialiseAsync(CurrentProject.RootPath);
+
+        if (!created.CanProceed)
+        {
+            _logger.LogWarning("Could not create a repository in {Folder}: {Message}",
+                CurrentProject.RootPath, created.Message);
+        }
+
+        return created;
     }
 
     /// <summary>
