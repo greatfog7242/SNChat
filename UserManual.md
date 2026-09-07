@@ -279,8 +279,16 @@ once** — it just will not carry on by itself.
 
 **If the folder is not a repository yet, SNChat offers to set one up.** Say yes and it runs
 `git init` and commits everything already there as the point to return to — no need to leave
-the app. One warning it gives you and is worth heeding: if the folder holds build output or
-downloaded packages, those get committed too. Add a `.gitignore` first if that matters.
+the app.
+
+It writes a `.gitignore` first, covering the things that should not be in a repository
+whatever the language: build output (`bin/`, `obj/`, `build/`, `target/`), downloaded
+packages (`node_modules/`, `.venv/`, `.bundle/`), editor and OS clutter (`.vs/`, `.idea/`,
+`.DS_Store`), logs, and secrets (`.env`, `*.pem`, `*.key`). Without it, the first commit in a
+folder that has been built in can be tens of thousands of files with your code buried in them.
+
+The file is yours once written — edit or delete any of it. **If the folder already has a
+`.gitignore`, it is left exactly as it is** and nothing is appended to it.
 
 The other two failures are not offered a fix, deliberately. Committing your work in progress
 under a message you did not write is not something to do on your behalf.

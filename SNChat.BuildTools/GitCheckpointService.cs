@@ -172,6 +172,21 @@ public class GitCheckpointService
         if (!init.Succeeded)
             return new CheckpointResult(false, $"Could not create the repository: {Tail(init.Output)}");
 
+        // Before staging, which is the only moment it can help: written after
+        // "git add -A" it would ignore nothing, because everything would already
+        // be staged. Failing to write it is not worth abandoning the repository
+        // over - the commit is just larger than it needed to be.
+        var wroteIgnoreFile = false;
+
+        try
+        {
+            wroteIgnoreFile = GitIgnoreTemplate.WriteIfAbsent(folder);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(ex, "Could not write a .gitignore in {Folder}", folder);
+        }
+
         var staged = await RunAsync(git, folder, cancellationToken, "add", "-A");
 
         if (!staged.Succeeded)
@@ -208,14 +223,19 @@ public class GitCheckpointService
         }
 
         _logger.LogInformation(
-            "Created a repository in {Folder} with {Count} file(s) committed", folder, fileCount);
+            "Created a repository in {Folder} with {Count} file(s) committed; .gitignore written: {Wrote}",
+            folder, fileCount, wroteIgnoreFile);
+
+        var ignoreNote = wroteIgnoreFile
+            ? " A .gitignore was added first, so build output and downloaded packages were left out."
+            : string.Empty;
 
         return await PrepareAsync(folder, required: true, cancellationToken) with
         {
-            Message = fileCount == 0
+            Message = (fileCount == 0
                 ? "Created a repository here, with an empty first commit to go back to."
                 : $"Created a repository here and committed the {fileCount} file(s) already " +
-                  "in it, as the point to go back to."
+                  "in it, as the point to go back to.") + ignoreNote
         };
     }
 

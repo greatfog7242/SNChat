@@ -913,8 +913,10 @@ public partial class ChatViewModel : ObservableObject
             "everything already in it as the point to return to. Nothing is deleted " +
             "or changed, and nothing is sent anywhere." +
             $"{Environment.NewLine}{Environment.NewLine}" +
-            "If the folder holds build output or downloaded packages, those will be " +
-            "committed too - add a .gitignore first if that matters." +
+            "A .gitignore will be added first, covering the usual things that do not " +
+            "belong in a repository - build output, downloaded packages, editor files " +
+            "and .env. You can edit it afterwards. If the folder already has one, it " +
+            "is left exactly as it is." +
             $"{Environment.NewLine}{Environment.NewLine}" +
             "Choosing No answers your message once, without working unattended.",
             "Put this project under git?",

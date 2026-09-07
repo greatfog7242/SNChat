@@ -137,6 +137,74 @@ public class GitCheckpointInitTests : IDisposable
     }
 
     [Fact]
+    public async Task Build_output_and_packages_are_kept_out_of_the_first_commit()
+    {
+        // The reason this matters: committing an object directory or a
+        // node_modules makes the first commit enormous and buries the code.
+        if (Git == null)
+            return;
+
+        Directory.CreateDirectory(Path.Combine(_folder, "node_modules", "left-pad"));
+        Directory.CreateDirectory(Path.Combine(_folder, "obj", "Debug"));
+        Directory.CreateDirectory(Path.Combine(_folder, "__pycache__"));
+
+        await File.WriteAllTextAsync(
+            Path.Combine(_folder, "node_modules", "left-pad", "index.js"), "module.exports=1");
+        await File.WriteAllTextAsync(Path.Combine(_folder, "obj", "Debug", "app.o"), "binary");
+        await File.WriteAllTextAsync(Path.Combine(_folder, "__pycache__", "m.cpython-312.pyc"), "x");
+        await File.WriteAllTextAsync(Path.Combine(_folder, ".env"), "API_KEY=hunter2");
+        await File.WriteAllTextAsync(Path.Combine(_folder, "app.py"), "print('hi')");
+
+        await _runner.RunAsync(Git, new[] { "init" }, _folder, Timeout);
+        await SetIdentity();
+
+        var created = await _checkpoints.InitialiseAsync(_folder);
+
+        Assert.True(created.CanProceed, created.Message);
+
+        var tracked = await _runner.RunAsync(Git, new[] { "ls-files" }, _folder, Timeout);
+
+        // The code, and the ignore file itself, are in.
+        Assert.Contains("app.py", tracked.Output);
+        Assert.Contains(".gitignore", tracked.Output);
+
+        // None of this is.
+        Assert.DoesNotContain("node_modules", tracked.Output);
+        Assert.DoesNotContain("app.o", tracked.Output);
+        Assert.DoesNotContain(".pyc", tracked.Output);
+
+        // A secret committed by accident cannot be un-committed from history
+        // afterwards, only rewritten - so this is the one that really matters.
+        Assert.DoesNotContain(".env", tracked.Output);
+    }
+
+    [Fact]
+    public async Task An_ignore_file_the_project_already_had_is_left_alone()
+    {
+        // It is the project's own decision about what belongs in it. Quietly
+        // rewriting a file somebody wrote is a poor way to repay them.
+        if (Git == null)
+            return;
+
+        var theirs = "# mine\n*.secret\n";
+        await File.WriteAllTextAsync(Path.Combine(_folder, ".gitignore"), theirs);
+
+        await _runner.RunAsync(Git, new[] { "init" }, _folder, Timeout);
+        await SetIdentity();
+
+        await _checkpoints.InitialiseAsync(_folder);
+
+        Assert.Equal(theirs, await File.ReadAllTextAsync(Path.Combine(_folder, ".gitignore")));
+    }
+
+    [Fact]
+    public void The_ignore_file_is_only_written_when_there_is_not_one()
+    {
+        Assert.True(GitIgnoreTemplate.WriteIfAbsent(_folder));
+        Assert.False(GitIgnoreTemplate.WriteIfAbsent(_folder));
+    }
+
+    [Fact]
     public async Task What_gitignore_excludes_is_still_excluded()
     {
         // The dialog warns that build output gets committed; an ignore file the
