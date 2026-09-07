@@ -312,6 +312,18 @@
                                  Margin="0,0,0,4"/>
                         <TextBlock Text="Used for models whose provider does not report a context length. Ollama is the usual case - it serves models at 4096 tokens unless the modelfile says otherwise, so raise this only if you have configured yours for more."
                                    FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="0,0,0,15"/>
+
+                        <TextBlock Text="Tools" FontSize="14" FontWeight="SemiBold" Margin="0,10,0,10"/>
+
+                        <TextBlock Text="Tool calls allowed per reply:" Margin="0,0,0,2"/>
+                        <TextBox Text="{Binding MaxToolIterations, UpdateSourceTrigger=PropertyChanged}"
+                                 Width="200"
+                                 HorizontalAlignment="Left"
+                                 Margin="0,0,0,4"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="0,0,0,4"
+                                   Text="How many rounds of tool calls one reply may make before it has to answer. Reaching it ends the reply with &quot;Stopped after too many tool calls&quot;. Raise it for coding work, which reads, edits, builds and re-runs within a single reply; 25 to 30 is a reasonable ceiling."/>
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="0,0,0,15"
+                                   Text="A round can contain several calls, so the real number allowed is higher than this. Before raising it a long way, check the log - a model burning this many rounds without answering is sometimes stuck rather than working. This is not the same as a project's step limit, which counts whole replies during an unattended run."/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
@@ -661,12 +673,32 @@
                         <TextBlock Text="Separate from building because a test suite runs your project's own code, while compiling it does not."
                                    FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="20,0,0,15"/>
 
+                        <CheckBox Content="Allow running programs it has built"
+                                  IsChecked="{Binding BuildAllowRun}"
+                                  Margin="0,0,0,4"/>
+                        <TextBlock Text="A step beyond building: this runs a binary the assistant itself produced. Still confined to the folders above, so in practice that means something it compiled there. Without it, it can compile your code but never see it work."
+                                   FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="20,0,0,15"/>
+
+                        <CheckBox Content="Allow committing its own work to git"
+                                  IsChecked="{Binding BuildAllowCommit}"
+                                  Margin="0,0,0,4"/>
+                        <TextBlock Text="Only status and commit - never push, reset, checkout or clean, so it cannot send anything anywhere or destroy the checkpoint an unattended run reset to. With this off, a run that needs to save stops and asks you."
+                                   FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="20,0,0,15"/>
+
                         <TextBlock Text="Time limit per build or test run (seconds):" Margin="0,0,0,2"/>
                         <TextBox Text="{Binding BuildTimeoutSeconds, UpdateSourceTrigger=PropertyChanged}"
                                  Width="200"
                                  HorizontalAlignment="Left"
                                  Margin="0,0,0,4"/>
                         <TextBlock Text="When it runs out the command and everything it started are stopped, so a hung build cannot hold the conversation open."
+                                   FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="0,0,0,15"/>
+
+                        <TextBlock Text="Time limit per program run (seconds):" Margin="0,0,0,2"/>
+                        <TextBox Text="{Binding BuildRunTimeoutSeconds, UpdateSourceTrigger=PropertyChanged}"
+                                 Width="200"
+                                 HorizontalAlignment="Left"
+                                 Margin="0,0,0,4"/>
+                        <TextBlock Text="Much shorter than the build limit, and deliberately: a program waiting on input it will never receive would otherwise hold the conversation for the full five minutes."
                                    FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="0,0,0,15"/>
 
                         <TextBlock Text="dotnet executable:" Margin="0,0,0,2"/>

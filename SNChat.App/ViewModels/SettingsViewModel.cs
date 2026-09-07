@@ -174,7 +174,25 @@ public partial class SettingsViewModel : ObservableObject
     private bool _buildAllowTests = true;
 
     [ObservableProperty]
+    private bool _buildAllowRun = true;
+
+    [ObservableProperty]
+    private bool _buildAllowCommit = true;
+
+    [ObservableProperty]
     private int _buildTimeoutSeconds = 300;
+
+    [ObservableProperty]
+    private int _buildRunTimeoutSeconds = 60;
+
+    /// <summary>
+    /// How many rounds of tool calls one reply may make. Reaching it produces
+    /// "Stopped after too many tool calls", which until now could only be raised
+    /// by hand-editing settings.json - and it is the limit most likely to be hit
+    /// during ordinary coding work.
+    /// </summary>
+    [ObservableProperty]
+    private int _maxToolIterations = 10;
 
     [ObservableProperty]
     private string _buildDotnetPath = "dotnet";
@@ -609,7 +627,11 @@ public partial class SettingsViewModel : ObservableObject
 
             BuildAllowedRoots = string.Join(Environment.NewLine, settings.BuildTools.AllowedRoots);
             BuildAllowTests = settings.BuildTools.AllowTests;
+            BuildAllowRun = settings.BuildTools.AllowRun;
+            BuildAllowCommit = settings.BuildTools.AllowCommit;
             BuildTimeoutSeconds = settings.BuildTools.TimeoutSeconds;
+            BuildRunTimeoutSeconds = settings.BuildTools.RunTimeoutSeconds;
+            MaxToolIterations = settings.Tools.MaxToolIterations;
             BuildDotnetPath = settings.BuildTools.DotnetPath;
             BuildCMakePath = settings.BuildTools.CMakePath;
             BuildMsBuildPath = settings.BuildTools.MsBuildPath;
@@ -707,7 +729,15 @@ public partial class SettingsViewModel : ObservableObject
                 .ToList();
 
             settings.BuildTools.AllowTests = BuildAllowTests;
+            settings.BuildTools.AllowRun = BuildAllowRun;
+            settings.BuildTools.AllowCommit = BuildAllowCommit;
             settings.BuildTools.TimeoutSeconds = Math.Clamp(BuildTimeoutSeconds, 10, 3600);
+            settings.BuildTools.RunTimeoutSeconds = Math.Clamp(BuildRunTimeoutSeconds, 5, 3600);
+
+            // Clamped rather than trusted: zero would stop the model before it
+            // could call anything, and a very large number turns a model stuck
+            // in a loop into a very long, very expensive wait.
+            settings.Tools.MaxToolIterations = Math.Clamp(MaxToolIterations, 1, 100);
             settings.BuildTools.DotnetPath = string.IsNullOrWhiteSpace(BuildDotnetPath)
                 ? "dotnet"
                 : BuildDotnetPath.Trim();
@@ -790,6 +820,10 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnDefaultModelChanged(string value) => HasUnsavedChanges = true;
     partial void OnBuildAllowedRootsChanged(string value) => HasUnsavedChanges = true;
     partial void OnBuildAllowTestsChanged(bool value) => HasUnsavedChanges = true;
+    partial void OnBuildAllowRunChanged(bool value) => HasUnsavedChanges = true;
+    partial void OnBuildAllowCommitChanged(bool value) => HasUnsavedChanges = true;
+    partial void OnBuildRunTimeoutSecondsChanged(int value) => HasUnsavedChanges = true;
+    partial void OnMaxToolIterationsChanged(int value) => HasUnsavedChanges = true;
     partial void OnBuildTimeoutSecondsChanged(int value) => HasUnsavedChanges = true;
     partial void OnBuildDotnetPathChanged(string value) => HasUnsavedChanges = true;
     partial void OnBuildCMakePathChanged(string value) => HasUnsavedChanges = true;
