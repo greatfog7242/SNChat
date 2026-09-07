@@ -300,15 +300,20 @@ public partial class ChatViewModel : ObservableObject
     partial void OnCurrentModeChanged(string value) => PersistSelection();
 
     /// <summary>
-    /// The instructions sent ahead of the conversation, from most general to
-    /// most specific: rules that always apply, then this project's rules, then
-    /// the answering mode, then whatever a template asked for.
+    /// The instructions sent ahead of the conversation: which folder is being
+    /// worked in, then rules from most general to most specific - those that
+    /// always apply, then this project's, then the answering mode, then whatever
+    /// a template asked for.
+    ///
+    /// The project comes first because it is a fact the rest is about, not an
+    /// instruction competing with them.
     ///
     /// Called whenever the context meter refreshes, so the rules files behind it
     /// are cached rather than read each time.
     /// </summary>
     private string BuildSystemPrompt() =>
         SystemPromptComposer.Compose(
+            SystemPromptComposer.DescribeProject(IsRealProject(CurrentProject) ? CurrentProject : null),
             _rules.ReadGlobal(),
             _rules.ReadForProject(IsRealProject(CurrentProject) ? CurrentProject!.RootPath : null),
             _settingsService.GetCachedSettings().Modes.PromptFor(CurrentMode),

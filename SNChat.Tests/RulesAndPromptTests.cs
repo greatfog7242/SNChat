@@ -163,6 +163,62 @@ public class RulesAndPromptTests : IDisposable
         Assert.Equal(string.Empty, Service().ReadForProject("\0not a path"));
     }
 
+    // --- the project briefing ---
+
+    [Fact]
+    public void The_briefing_names_the_project_and_its_folder()
+    {
+        // Picking a project in the toolbar is silent, so without this the model
+        // has no way of knowing which folder the conversation is about.
+        var root = Path.Combine(_directory, "app");
+        Directory.CreateDirectory(root);
+
+        var briefing = SystemPromptComposer.DescribeProject(
+            new Project { Name = "Well Done", RootPath = root });
+
+        Assert.Contains("Well Done", briefing);
+        Assert.Contains(root, briefing);
+    }
+
+    [Fact]
+    public void With_no_project_nothing_is_said_about_one()
+    {
+        Assert.Equal(string.Empty, SystemPromptComposer.DescribeProject(null));
+        Assert.Equal(string.Empty, SystemPromptComposer.DescribeProject(new Project()));
+    }
+
+    [Fact]
+    public void A_project_whose_folder_has_gone_says_so()
+    {
+        // Otherwise the model plans confidently against a path that fails on the
+        // first tool call.
+        var briefing = SystemPromptComposer.DescribeProject(
+            new Project { Name = "Moved", RootPath = Path.Combine(_directory, "not-there") });
+
+        Assert.Contains("no longer exists", briefing);
+    }
+
+    [Fact]
+    public void An_unnamed_project_still_states_the_folder()
+    {
+        // Project files are hand-editable, and a name is not required.
+        var root = Path.Combine(_directory, "nameless");
+        Directory.CreateDirectory(root);
+
+        var briefing = SystemPromptComposer.DescribeProject(new Project { RootPath = root });
+
+        Assert.Contains(root, briefing);
+        Assert.DoesNotContain("\"\"", briefing);
+    }
+
+    [Fact]
+    public void The_briefing_comes_before_the_rules_it_is_about()
+    {
+        var composed = SystemPromptComposer.Compose("working in X", "global", "project rules");
+
+        Assert.StartsWith("working in X", composed);
+    }
+
     // --- skills ---
 
     [Fact]
