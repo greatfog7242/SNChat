@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
@@ -5,6 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Navigation;
+using System.Windows.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using SNChat.App.ViewModels;
 
@@ -69,6 +71,50 @@ public partial class ChatView : UserControl
                 MessageScrollViewer.ScrollToBottom();
             });
         };
+
+        viewModel.PropertyChanged += OnViewModelPropertyChanged;
+    }
+
+    /// <summary>
+    /// Puts the caret back in the input box once the turn is over.
+    ///
+    /// The box is disabled while a reply streams, and WPF drops keyboard focus
+    /// from a control it disables without handing it back when it is re-enabled.
+    /// Clicking Send loses it the same way, since the button is disabled too.
+    /// Either way the caret ended up nowhere and the next message could not be
+    /// typed until the box was clicked again.
+    /// </summary>
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        // IsAgentRunning as well as IsStreaming: an automatic run drops
+        // IsStreaming between its turns, and the box stays disabled across the
+        // whole run, so only the end of the run is the moment to hand focus back.
+        if (e.PropertyName != nameof(ChatViewModel.IsStreaming) &&
+            e.PropertyName != nameof(ChatViewModel.IsAgentRunning))
+        {
+            return;
+        }
+
+        if (DataContext is not ChatViewModel chat || chat.IsStreaming || chat.IsAgentRunning)
+            return;
+
+        // Queued rather than called here: the IsEnabled binding has not run yet
+        // at this point, and Focus() on a still-disabled TextBox is dropped.
+        Dispatcher.InvokeAsync(RestoreInputFocus, DispatcherPriority.Input);
+    }
+
+    private void RestoreInputFocus()
+    {
+        // Only when the chat window is the one in front. A modal dialog - the
+        // settings window, the template picker, an access prompt - deactivates
+        // it, and pulling focus out from under that dialog would be worse than
+        // leaving the caret where it is. IsEnabled is re-checked because a run
+        // may have started again between the notification and this callback.
+        if (Window.GetWindow(this)?.IsActive != true || !MessageInput.IsEnabled)
+            return;
+
+        MessageInput.Focus();
+        MessageInput.CaretIndex = MessageInput.Text.Length;
     }
 
     /// <summary>
