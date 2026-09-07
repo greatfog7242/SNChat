@@ -6,8 +6,9 @@
     <Application.Resources>
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
         <converters:InverseBooleanConverter x:Key="InverseBooleanConverter"/>
+        <converters:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter"/>
         <converters:HasCodeBlocksConverter x:Key="HasCodeBlocksConverter"/>
         <converters:NotNullConverter x:Key="NotNullConverter"/>
-        <converters:FilePathToUriConverter x:Key="FilePathToUriConverter"/>
+        <converters:FilePathToImageConverter x:Key="FilePathToImageConverter"/>
     </Application.Resources>
 </Application>

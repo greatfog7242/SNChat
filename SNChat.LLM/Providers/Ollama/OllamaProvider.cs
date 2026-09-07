@@ -1,4 +1,4 @@
-using System.Net.Http.Json;
+﻿using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
@@ -15,17 +15,51 @@ public class OllamaProvider : BaseLLMProvider
 {
     private readonly IToolRegistry? _toolRegistry;
 
-    protected override string BaseUrl => "http://localhost:11434";
+    /// <summary>
+    /// Configurable because Ollama is not always on the machine running this:
+    /// one host with a capable GPU commonly serves several clients over a
+    /// network. Fixed at construction, as it sets the HttpClient's address.
+    /// </summary>
+    protected override string BaseUrl { get; }
+
     public override string Name => "Ollama";
+
+    /// <summary>
+    /// The configured num_ctx, read per request rather than captured, because
+    /// this provider is a singleton built at startup - capturing it would mean a
+    /// change in Settings did nothing until the app was relaunched. Returns 0
+    /// when unset, which leaves Ollama to size the context itself.
+    /// </summary>
+    private readonly Func<int> _configuredContextWindow;
 
     public OllamaProvider(
         HttpClient httpClient,
         ILogger<OllamaProvider> logger,
-        IToolRegistry? toolRegistry = null)
+        IToolRegistry? toolRegistry = null,
+        string? baseUrl = null,
+        Func<int>? configuredContextWindow = null)
         : base(httpClient, logger)
     {
+        BaseUrl = string.IsNullOrWhiteSpace(baseUrl) ? "http://localhost:11434" : baseUrl.TrimEnd('/');
         httpClient.BaseAddress = new Uri(BaseUrl);
         _toolRegistry = toolRegistry;
+        _configuredContextWindow = configuredContextWindow ?? (() => 0);
+    }
+
+    /// <summary>
+    /// The window a request will actually get: what was configured, but never
+    /// more than the model was trained for, since asking beyond that does not
+    /// buy a longer memory. Falls back to the model's own length when nothing is
+    /// configured, and to 0 when neither is known.
+    /// </summary>
+    public static int EffectiveContextWindow(int configured, long modelLength)
+    {
+        if (configured <= 0)
+            return modelLength > 0 ? (int)Math.Min(modelLength, int.MaxValue) : 0;
+
+        return modelLength > 0
+            ? (int)Math.Min(configured, modelLength)
+            : configured;
     }
 
     public override async Task<List<Model>> GetAvailableModelsAsync()
@@ -36,13 +70,25 @@ public class OllamaProvider : BaseLLMProvider
             if (response == null || response.Models == null)
                 return new List<Model>();
 
+            // /api/tags carries no context length, so each model is asked for its
+            // own. In parallel because this is one round trip per installed
+            // model, and serially that is a visible pause on every provider switch.
+            var contextLengths = await Task.WhenAll(
+                response.Models.Select(async m => (m.Name, Length: await GetContextLengthAsync(m.Name))));
+
+            var byModel = contextLengths.ToDictionary(x => x.Name, x => x.Length);
+            var configured = _configuredContextWindow();
+
             return response.Models.Select(m => new Model
             {
                 Id = m.Name,
                 DisplayName = m.Name,
                 Provider = Name,
                 ParameterSize = m.Size,
-                ContextWindow = 4096, // Default, Ollama doesn't always expose this
+                // What a request will really be served with, so the context
+                // meter measures against the same figure the request asks for.
+                ContextWindow = EffectiveContextWindow(
+                    configured, byModel.TryGetValue(m.Name, out var length) ? length : 0),
                 Capabilities = new Dictionary<string, object>
                 {
                     ["quantization"] = m.Details?.QuantizationLevel ?? "unknown",
@@ -54,6 +100,48 @@ public class OllamaProvider : BaseLLMProvider
         {
             Logger.LogError(ex, "Failed to get available models from Ollama");
             return new List<Model>();
+        }
+    }
+
+    /// <summary>
+    /// How many tokens the model can hold, from /api/show, or 0 when that cannot
+    /// be established - which leaves the caller to fall back rather than act on a
+    /// number nobody reported.
+    ///
+    /// This is the model's own context length. What Ollama actually serves is
+    /// num_ctx, which it sizes to fit available memory and so can be lower on a
+    /// small GPU. Reporting the model's figure therefore reads generously - but
+    /// the previous hardcoded 4096 was wrong by 64x on a 256k model, which
+    /// pushed the context meter to 100% on the first message and triggered a
+    /// compaction that was not needed.
+    /// </summary>
+    private async Task<long> GetContextLengthAsync(string model)
+    {
+        try
+        {
+            using var response = await HttpClient.PostAsJsonAsync("/api/show", new { model });
+
+            if (!response.IsSuccessStatusCode)
+            {
+                Logger.LogDebug("Ollama /api/show returned {Status} for {Model}",
+                    response.StatusCode, model);
+                return 0;
+            }
+
+            var show = await response.Content.ReadFromJsonAsync<OllamaShowResponse>();
+            var length = show?.ContextLength ?? 0;
+
+            if (length == 0)
+                Logger.LogDebug("Ollama reported no context length for {Model}", model);
+
+            return length;
+        }
+        catch (Exception ex)
+        {
+            // Not an error worth failing the model list over: an unknown window
+            // only costs the accuracy of the meter.
+            Logger.LogDebug(ex, "Could not read the context length for {Model}", model);
+            return 0;
         }
     }
 
@@ -189,6 +277,21 @@ public class OllamaProvider : BaseLLMProvider
                     ToolName = toolName,
                     Content = result.Content
                 });
+
+                // Handed up so the app can keep it with the conversation. The
+                // copy above lives only for this request.
+                yield return new StreamChunk
+                {
+                    ToolExchange = new ToolExchange
+                    {
+                        Name = toolName,
+                        CallId = call.Id ?? string.Empty,
+                        Arguments = call.Function.Arguments.ValueKind == JsonValueKind.Undefined
+                            ? "{}"
+                            : call.Function.Arguments.GetRawText(),
+                        Result = result.Content
+                    }
+                };
             }
         }
     }
@@ -336,27 +439,28 @@ public class OllamaProvider : BaseLLMProvider
     /// <summary>
     /// Flattens Ollama's JSON argument object into plain CLR values for ITool.
     /// </summary>
-    private static Dictionary<string, object?> UnpackArguments(JsonElement arguments)
+    private static Dictionary<string, object?> UnpackArguments(JsonElement arguments) =>
+        ToolArgumentReader.Read(arguments);
+
+    /// <summary>
+    /// Stored arguments back as JSON. An empty object when they are missing or
+    /// unparseable, since a malformed call would be rejected outright and losing
+    /// the arguments of one historical call is better than losing the request.
+    /// </summary>
+    private static JsonElement ParseArgumentsElement(string arguments)
     {
-        var result = new Dictionary<string, object?>();
-
-        if (arguments.ValueKind != JsonValueKind.Object)
-            return result;
-
-        foreach (var property in arguments.EnumerateObject())
+        if (!string.IsNullOrWhiteSpace(arguments))
         {
-            result[property.Name] = property.Value.ValueKind switch
+            try
             {
-                JsonValueKind.String => property.Value.GetString(),
-                JsonValueKind.Number => property.Value.TryGetInt64(out var l) ? l : property.Value.GetDouble(),
-                JsonValueKind.True => true,
-                JsonValueKind.False => false,
-                JsonValueKind.Null => null,
-                _ => property.Value.GetRawText()
-            };
+                return JsonDocument.Parse(arguments).RootElement.Clone();
+            }
+            catch (JsonException)
+            {
+            }
         }
 
-        return result;
+        return JsonDocument.Parse("{}").RootElement.Clone();
     }
 
     private class StreamItem
@@ -379,13 +483,47 @@ public class OllamaProvider : BaseLLMProvider
             });
         }
 
-        // Add conversation messages
-        messages.AddRange(request.Messages.Select(m => new OllamaMessage
+        foreach (var message in request.Messages)
         {
-            Role = m.Role.ToString().ToLowerInvariant(),
-            Content = m.Content,
-            Images = EncodeImages(m)
-        }));
+            // A stored tool exchange becomes the two messages it originally was:
+            // the assistant's call, then the result. Ollama pairs them by tool
+            // name, so no id is needed on the way back out.
+            if (message.IsToolExchange)
+            {
+                messages.Add(new OllamaMessage
+                {
+                    Role = "assistant",
+                    Content = string.Empty,
+                    ToolCalls = new List<OllamaToolCall>
+                    {
+                        new()
+                        {
+                            Function = new OllamaToolCallFunction
+                            {
+                                Name = message.ToolName,
+                                Arguments = ParseArgumentsElement(message.ToolArguments)
+                            }
+                        }
+                    }
+                });
+
+                messages.Add(new OllamaMessage
+                {
+                    Role = "tool",
+                    ToolName = message.ToolName,
+                    Content = message.Content
+                });
+
+                continue;
+            }
+
+            messages.Add(new OllamaMessage
+            {
+                Role = message.Role.ToString().ToLowerInvariant(),
+                Content = message.Content,
+                Images = EncodeImages(message)
+            });
+        }
 
         return new OllamaChatRequest
         {
@@ -401,6 +539,10 @@ public class OllamaProvider : BaseLLMProvider
             {
                 Temperature = request.Parameters.Temperature,
                 NumPredict = request.Parameters.MaxTokens,
+                // Left out when unset so Ollama keeps choosing for itself; the
+                // model's own cap is not applied here because that would need a
+                // second round trip per request just to look it up.
+                NumCtx = _configuredContextWindow() is > 0 and var numCtx ? numCtx : null,
                 TopP = request.Parameters.TopP,
                 FrequencyPenalty = request.Parameters.FrequencyPenalty,
                 PresencePenalty = request.Parameters.PresencePenalty,

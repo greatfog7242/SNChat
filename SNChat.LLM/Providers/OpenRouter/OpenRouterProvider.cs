@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -302,6 +302,21 @@ public class OpenRouterProvider : BaseLLMProvider
                     ToolCallId = call.Id,
                     Content = result.Content
                 });
+
+                // Handed up so the app can keep it with the conversation. The
+                // copy above lives only for this request.
+                yield return new StreamChunk
+                {
+                    ToolExchange = new ToolExchange
+                    {
+                        Name = call.Function.Name,
+                        CallId = call.Id ?? string.Empty,
+                        Arguments = string.IsNullOrWhiteSpace(call.Function.Arguments)
+                            ? "{}"
+                            : call.Function.Arguments,
+                        Result = result.Content
+                    }
+                };
             }
         }
     }
@@ -595,23 +610,7 @@ public class OpenRouterProvider : BaseLLMProvider
             return result;
         }
 
-        if (root.ValueKind != JsonValueKind.Object)
-            return result;
-
-        foreach (var property in root.EnumerateObject())
-        {
-            result[property.Name] = property.Value.ValueKind switch
-            {
-                JsonValueKind.String => property.Value.GetString(),
-                JsonValueKind.Number => property.Value.TryGetInt64(out var l) ? l : property.Value.GetDouble(),
-                JsonValueKind.True => true,
-                JsonValueKind.False => false,
-                JsonValueKind.Null => null,
-                _ => property.Value.GetRawText()
-            };
-        }
-
-        return result;
+        return ToolArgumentReader.Read(root);
     }
 
     /// <summary>
@@ -644,11 +643,56 @@ public class OpenRouterProvider : BaseLLMProvider
             });
         }
 
-        messages.AddRange(request.Messages.Select(m => new OpenRouterMessage
+        foreach (var message in request.Messages)
         {
-            Role = m.Role.ToString().ToLowerInvariant(),
-            Content = m.Content
-        }));
+            // A stored tool exchange becomes the two messages it originally was.
+            // Unlike Ollama, these pair by id, and a result whose id matches no
+            // call the assistant made is rejected - so an id is invented for any
+            // exchange recorded without one, which is every exchange that came
+            // from Ollama.
+            if (message.IsToolExchange)
+            {
+                var callId = string.IsNullOrEmpty(message.ToolCallId)
+                    ? "call_" + message.Id.ToString("N")[..12]
+                    : message.ToolCallId;
+
+                messages.Add(new OpenRouterMessage
+                {
+                    Role = "assistant",
+                    Content = null,
+                    ToolCalls = new List<OpenRouterToolCall>
+                    {
+                        new()
+                        {
+                            Id = callId,
+                            Type = "function",
+                            Function = new OpenRouterToolCallFunction
+                            {
+                                Name = message.ToolName,
+                                Arguments = string.IsNullOrWhiteSpace(message.ToolArguments)
+                                    ? "{}"
+                                    : message.ToolArguments
+                            }
+                        }
+                    }
+                });
+
+                messages.Add(new OpenRouterMessage
+                {
+                    Role = "tool",
+                    ToolCallId = callId,
+                    Content = message.Content
+                });
+
+                continue;
+            }
+
+            messages.Add(new OpenRouterMessage
+            {
+                Role = message.Role.ToString().ToLowerInvariant(),
+                Content = message.Content
+            });
+        }
 
         var byokProvider = ResolveByokProvider(request.Model);
         if (byokProvider != null)

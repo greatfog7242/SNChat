@@ -15,8 +15,10 @@ public class McpService : IDisposable
 {
     private readonly SettingsService _settingsService;
     private readonly IToolRegistry _toolRegistry;
+    private readonly SessionAccessGrants _grants;
+    private readonly IAccessPrompt _accessPrompt;
     private readonly ILogger<McpService> _logger;
-    private readonly List<McpClient> _clients = new();
+    private readonly List<McpServerConnection> _connections = new();
     private readonly List<(string ServerName, int ToolCount)> _serverInfo = new();
 
     public IReadOnlyList<(string ServerName, int ToolCount)> ConnectedServers => _serverInfo.AsReadOnly();
@@ -24,10 +26,14 @@ public class McpService : IDisposable
     public McpService(
         SettingsService settingsService,
         IToolRegistry toolRegistry,
+        SessionAccessGrants grants,
+        IAccessPrompt accessPrompt,
         ILogger<McpService> logger)
     {
         _settingsService = settingsService;
         _toolRegistry = toolRegistry;
+        _grants = grants;
+        _accessPrompt = accessPrompt;
         _logger = logger;
     }
 
@@ -62,7 +68,7 @@ public class McpService : IDisposable
         }
 
         _logger.LogInformation("MCP initialization complete. {Count} server(s) connected, {ToolCount} tool(s) registered",
-            _clients.Count, _serverInfo.Sum(s => s.ToolCount));
+            _connections.Count, _serverInfo.Sum(s => s.ToolCount));
     }
 
     private async Task InitializeServerAsync(McpServerConfig config, CancellationToken cancellationToken)
@@ -70,22 +76,19 @@ public class McpService : IDisposable
         _logger.LogInformation("Connecting to MCP server: {Name} ({Command} {Args})",
             config.Name, config.Command, config.Arguments);
 
-        // Create and initialize client
-        var client = new McpClient(config.Command, config.Arguments, config.Env);
-        client.ErrorReceived += (s, error) =>
-        {
-            _logger.LogWarning("MCP server {Name} error: {Error}", config.Name, error);
-        };
+        // Wrapped in a connection rather than held as a client, so that granting
+        // access to another folder can restart the server underneath the tools
+        // already registered from it.
+        var connection = await McpServerConnection.ConnectAsync(
+            config.Command, config.Arguments, config.Env, cancellationToken);
 
         try
         {
-            await client.InitializeAsync(cancellationToken);
-
             _logger.LogInformation("Connected to {ServerName} v{Version}",
-                client.ServerInfo.Name, client.ServerInfo.Version);
+                connection.Client.ServerInfo.Name, connection.Client.ServerInfo.Version);
 
             // Discover tools
-            var tools = await client.ListToolsAsync(cancellationToken);
+            var tools = await connection.ListToolsAsync(cancellationToken);
 
             _logger.LogInformation("Discovered {Count} tool(s) from {Server}",
                 tools.Count, config.Name);
@@ -96,7 +99,9 @@ public class McpService : IDisposable
             {
                 try
                 {
-                    var adapter = new McpToolAdapter(client, mcpTool);
+                    var adapter = new McpToolAdapter(
+                        connection, mcpTool, _grants, _accessPrompt, _logger);
+
                     _toolRegistry.Register(adapter);
                     registeredCount++;
 
@@ -110,8 +115,8 @@ public class McpService : IDisposable
                 }
             }
 
-            // Track this client for cleanup
-            _clients.Add(client);
+            // Track this connection for cleanup
+            _connections.Add(connection);
             _serverInfo.Add((config.Name, registeredCount));
 
             _logger.LogInformation("Successfully registered {Count}/{Total} tools from {Server}",
@@ -119,29 +124,29 @@ public class McpService : IDisposable
         }
         catch
         {
-            // Clean up client if initialization failed
-            client.Dispose();
+            // Clean up the connection if discovery failed
+            connection.Dispose();
             throw;
         }
     }
 
     public void Dispose()
     {
-        _logger.LogInformation("Shutting down {Count} MCP server(s)", _clients.Count);
+        _logger.LogInformation("Shutting down {Count} MCP server(s)", _connections.Count);
 
-        foreach (var client in _clients)
+        foreach (var connection in _connections)
         {
             try
             {
-                client.Dispose();
+                connection.Dispose();
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Error disposing MCP client");
+                _logger.LogWarning(ex, "Error disposing MCP connection");
             }
         }
 
-        _clients.Clear();
+        _connections.Clear();
         _serverInfo.Clear();
     }
 }

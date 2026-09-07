@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="SNChat.App/SNChat.App.csproj" />
+  <Project Path="SNChat.BuildTools/SNChat.BuildTools.csproj" />
   <Project Path="SNChat.Core/SNChat.Core.csproj" />
   <Project Path="SNChat.FileTools/SNChat.FileTools.csproj" />
   <Project Path="SNChat.LLM/SNChat.LLM.csproj" />

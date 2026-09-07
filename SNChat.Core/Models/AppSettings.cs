@@ -1,4 +1,4 @@
-namespace SNChat.Core.Models;
+﻿namespace SNChat.Core.Models;
 
 public class AppSettings
 {
@@ -7,10 +7,239 @@ public class AppSettings
     public ToolSettings Tools { get; set; } = new();
     public UIPreferences UI { get; set; } = new();
     public StorageSettings Storage { get; set; } = new();
+    public ModeSettings Modes { get; set; } = new();
+    public ContextSettings Context { get; set; } = new();
+    public BuildToolSettings BuildTools { get; set; } = new();
+}
+
+/// <summary>
+/// Lets the model build and test projects with the toolchains already installed
+/// - MSBuild and dotnet for Visual Studio work, Gradle for Android Studio.
+///
+/// Off until <see cref="AllowedRoots"/> names somewhere, and deliberately so.
+/// Building a project runs that project's own scripts: MSBuild targets,
+/// build.gradle and pre-build events all execute arbitrary code. Since this
+/// model also reads web results and files from MCP servers, text it has been fed
+/// can attempt to talk it into building something hostile. Confining it to
+/// folders named here by hand keeps the blast radius to projects already trusted.
+/// </summary>
+public class BuildToolSettings
+{
+    /// <summary>
+    /// Project folders the model may build in, including everything beneath
+    /// them. Empty - the default - turns the build tools off entirely rather
+    /// than allowing everything.
+    /// </summary>
+    public List<string> AllowedRoots { get; set; } = new();
+
+    /// <summary>
+    /// How long a single build or test run may take before it is stopped and its
+    /// process tree killed. A build that hangs would otherwise hold the turn open
+    /// indefinitely, and Gradle daemons keep running once orphaned.
+    /// </summary>
+    public int TimeoutSeconds { get; set; } = 300;
+
+    /// <summary>
+    /// Whether the model may run tests as well as build. Separate because a test
+    /// suite runs the project's own code, which a compile does not.
+    /// </summary>
+    public bool AllowTests { get; set; } = true;
+
+    /// <summary>
+    /// Whether the model may run a program it built. This is what closes the
+    /// write-build-run-fix loop: without it the model compiles something and
+    /// never learns whether it works, so it asks the user to paste the output back.
+    ///
+    /// A step beyond building. A build runs scripts the project's author wrote;
+    /// this runs a binary the model itself just produced. It is still confined
+    /// to the allowed folders, so in practice that means something it compiled
+    /// there.
+    /// </summary>
+    public bool AllowRun { get; set; } = true;
+
+    /// <summary>
+    /// Whether the assistant may commit the project's changes.
+    ///
+    /// Narrow on purpose: it can stage and commit, and nothing else. Pushing is
+    /// outward-facing and irreversible from here; reset, checkout and clean
+    /// destroy work, including the checkpoint that makes a run undoable. None of
+    /// those are offered at all.
+    ///
+    /// Committing stays safe because the checkpoint taken before an unattended
+    /// run points at the commit it started from, so resetting to it discards
+    /// anything committed since. Without this, a run that needs to save stops
+    /// and asks - which is not really working on its own.
+    /// </summary>
+    public bool AllowCommit { get; set; } = true;
+
+    /// <summary>
+    /// Time limit for one program run, separate from and much shorter than the
+    /// build timeout. A program waiting on input it will never get would
+    /// otherwise hold the conversation for the full five minutes.
+    /// </summary>
+    public int RunTimeoutSeconds { get; set; } = 60;
+
+    /// <summary>
+    /// The dotnet executable. A bare name is looked up on PATH; give a full path
+    /// if several SDKs are installed and the wrong one is being found.
+    /// </summary>
+    public string DotnetPath { get; set; } = "dotnet";
+
+    /// <summary>
+    /// The cmake executable, for C/C++ projects. Empty is the normal case: the
+    /// PATH is searched, and then every Visual Studio installation, which is
+    /// where cmake usually turns out to be - Visual Studio bundles it but does
+    /// not add it to the PATH, so it is invisible to anything not launched from
+    /// a developer command prompt. Set a full path to override that search.
+    /// </summary>
+    public string CMakePath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// MSBuild.exe from a Visual Studio installation, used in preference to
+    /// dotnet for solutions that need the full framework - anything with a
+    /// classic .NET Framework project, which "dotnet build" cannot build.
+    /// Empty means always use dotnet.
+    /// </summary>
+    public string MsBuildPath { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// When to fold the older part of a conversation into a summary. Every turn
+/// resends the whole history, so a long conversation eventually fills the
+/// model's context window - at which point the request stops being merely
+/// expensive and starts being rejected outright. Compacting trades the exact
+/// wording of early messages for room to keep going.
+/// </summary>
+public class ContextSettings
+{
+    /// <summary>
+    /// Compact on its own once <see cref="CompactThresholdPercent"/> is reached,
+    /// rather than waiting to be asked. The meter and the Compact button stay
+    /// available either way, so turning this off means manual-only.
+    /// </summary>
+    public bool AutoCompact { get; set; } = true;
+
+    /// <summary>
+    /// How full the window has to get before compacting, as a percentage.
+    /// Deliberately short of 100: the reply has to fit as well as the prompt,
+    /// and compacting itself needs room to send what it is summarizing.
+    /// </summary>
+    public int CompactThresholdPercent { get; set; } = 80;
+
+    /// <summary>
+    /// How many of the most recent messages are left untouched. Compacting
+    /// everything would summarize away the exchange in progress, which is the
+    /// part the next answer depends on most.
+    /// </summary>
+    public int KeepRecentMessages { get; set; } = 6;
+
+    /// <summary>
+    /// Window size assumed for a model whose provider does not report one.
+    /// Ollama is the usual case: its model list carries no context length, so
+    /// without a figure here the meter would have nothing to measure against.
+    /// </summary>
+    public int FallbackWindowTokens { get; set; } = 8192;
+}
+
+/// <summary>The answering styles offered in the main window's Mode picker.</summary>
+public static class ChatMode
+{
+    public const string Chat = "Chat";
+    public const string Coding = "Coding";
+    public const string Scientific = "Scientific";
+
+    public static readonly string[] All = { Chat, Coding, Scientific };
+}
+
+/// <summary>
+/// A standing instruction per mode, sent ahead of the conversation. Held as a
+/// system prompt rather than pasted onto each message so that switching mode
+/// changes how the next answer comes back without leaving the old instruction
+/// buried in turns already saved.
+/// </summary>
+public class ModeSettings
+{
+    /// <summary>
+    /// Which mode was in use when the app last ran. Kept here beside the
+    /// prompts, matching how the last provider and model are remembered.
+    /// </summary>
+    public string LastMode { get; set; } = ChatMode.Chat;
+
+    public string ChatPrompt { get; set; } =
+        "Answer plainly and conversationally. Get to the point, and say when " +
+        "you are unsure rather than guessing with confidence.";
+
+    public string CodingPrompt { get; set; } =
+        "You are helping with software. Prefer complete, runnable code over " +
+        "fragments, and match the conventions of the code you are shown. " +
+        "Point out edge cases, error handling and anything that looks like a " +
+        "bug. When you are uncertain whether an API exists, say so rather " +
+        "than inventing one.";
+
+    public string ScientificPrompt { get; set; } =
+        "Answer with precision. Carry units through calculations and state " +
+        "the assumptions a result depends on. Separate what is established " +
+        "from what is contested or speculative, and give the reasoning rather " +
+        "than only the conclusion.";
+
+    /// <summary>
+    /// The prompt for a mode, or empty for an unknown one, so a hand-edited
+    /// settings file naming a mode that does not exist simply adds nothing.
+    /// </summary>
+    public string PromptFor(string mode) => mode switch
+    {
+        ChatMode.Chat => ChatPrompt,
+        ChatMode.Coding => CodingPrompt,
+        ChatMode.Scientific => ScientificPrompt,
+        _ => string.Empty
+    };
+
+    /// <summary>
+    /// The whole system prompt for a request: this mode's standing instruction
+    /// first, then whatever a template set, separated by a blank line. Either
+    /// may be absent - a mode can be blanked out in Settings, and most
+    /// templates carry no system prompt - and an empty result means no system
+    /// message should be sent at all rather than an empty one.
+    /// </summary>
+    public string BuildSystemPrompt(string mode, string? templatePrompt)
+    {
+        var parts = new[] { PromptFor(mode), templatePrompt }
+            .Where(part => !string.IsNullOrWhiteSpace(part))
+            .Select(part => part!.Trim());
+
+        return string.Join("\n\n", parts);
+    }
 }
 
 public class ProviderSettings
 {
+    /// <summary>
+    /// Where Ollama is listening. Points at this machine by default, but an
+    /// instance shared over a network is addressed here - the serving machine
+    /// must be started with OLLAMA_HOST=0.0.0.0 to accept anything other than
+    /// its own loopback.
+    /// </summary>
+    public string OllamaBaseUrl { get; set; } = "http://localhost:11434";
+
+    /// <summary>
+    /// How much context Ollama should serve a model with, sent as num_ctx.
+    ///
+    /// Zero, the default, sends nothing and lets Ollama size it as it sees fit -
+    /// which is what it did before this existed. The catch is that nothing then
+    /// reports what it settled on: the context meter has to fall back to the
+    /// model's own trained length, which is an upper bound and can be far above
+    /// what is actually being served.
+    ///
+    /// Setting it makes both ends agree - the request asks for exactly this much
+    /// and the meter measures against exactly this much. It costs memory though:
+    /// the KV cache grows with this number, so too large a value pushes layers
+    /// off the GPU and slows generation badly, or fails to load at all.
+    ///
+    /// Capped at the model's trained length when that is known, since asking for
+    /// more than a model was built for does not give it a longer memory.
+    /// </summary>
+    public int OllamaContextWindow { get; set; }
+
     public string FreeTokenApiKey { get; set; } = string.Empty;
     public string FreeTokenBaseUrl { get; set; } = "https://api.freetoken.ai/v1";
     public string OpenRouterApiKey { get; set; } = string.Empty;

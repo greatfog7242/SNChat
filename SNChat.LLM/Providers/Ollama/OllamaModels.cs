@@ -113,6 +113,15 @@ public class OllamaOptions
     [JsonPropertyName("num_predict")]
     public int? NumPredict { get; set; }
 
+    /// <summary>
+    /// How much context to serve the model with. Omitted when unset, which
+    /// leaves Ollama to size it - so this is null rather than 0, because 0 is a
+    /// value Ollama would try to honour.
+    /// </summary>
+    [JsonPropertyName("num_ctx")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? NumCtx { get; set; }
+
     [JsonPropertyName("top_p")]
     public double? TopP { get; set; }
 
@@ -180,4 +189,43 @@ public class OllamaModelDetails
 
     [JsonPropertyName("quantization_level")]
     public string? QuantizationLevel { get; set; }
+}
+
+/// <summary>
+/// What /api/show reports about one model. Only the context length is read; the
+/// rest of the response is large and of no use here.
+/// </summary>
+public class OllamaShowResponse
+{
+    /// <summary>
+    /// Architecture-specific facts, keyed like "qwen35.context_length" or
+    /// "llama.context_length". The prefix varies per model family, which is why
+    /// this is read as a loose dictionary rather than typed fields.
+    /// </summary>
+    [JsonPropertyName("model_info")]
+    public Dictionary<string, JsonElement>? ModelInfo { get; set; }
+
+    /// <summary>
+    /// The model's context length, or 0 when the response does not carry one.
+    /// Found by suffix so that a family this was never tested against still works.
+    /// </summary>
+    public long ContextLength
+    {
+        get
+        {
+            if (ModelInfo == null)
+                return 0;
+
+            foreach (var (key, value) in ModelInfo)
+            {
+                if (!key.EndsWith(".context_length", StringComparison.Ordinal))
+                    continue;
+
+                if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var length))
+                    return length;
+            }
+
+            return 0;
+        }
+    }
 }

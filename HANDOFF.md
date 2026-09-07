@@ -1,11 +1,156 @@
 # SNChat Implementation Status
 
-**Last Updated**: 2026-08-30 19:10 UTC  
-**Phase 1 Status**: ✅ COMPLETE  
-**Phase 2 Status**: ✅ COMPLETE (app icon deferred)  
-**Bonus**: Tool calling with web + image search (unplanned, delivered early)  
-**Next**: Phase 3, Phase 5 (RAG - blocked on Ollama embeddings), or hardening  
+**Last Updated**: 2026-09-06  
+**Phase 1 / Phase 2**: ✅ COMPLETE (history below, from 2026-08-30)  
+**Current work**: turning the app into a coding agent — see "Where things stand" next  
 **Repository**: https://github.com/greatfog7242/SNChat
+
+---
+
+# Where things stand (read this first)
+
+## Branch and commits
+
+Working branch `cache-search-images`. **Four commits ahead of origin** — push with
+`git push origin cache-search-images`. Newest first:
+
+| Commit | What |
+|---|---|
+| `bc45131` | Subagents — `run_subagent`, agent definitions, `ActiveModel` |
+| `1bcb905` | Notes brought current with the git tools |
+| `49729ea` | `git_status` and `git_commit` — the assistant can save its own work |
+| `964f283` | Checkpoint taken before the work; auto-continue marked as such |
+| `d7ce24c` | Real-model probes for the loop; pytest falls back to unittest |
+| `5d6e4a5` | Autonomous loop: `task_complete`, budgets, git checkpoint |
+| `61acf6a` | Tool calls and results persisted — stage 4's prerequisite |
+| `beef193` | Conversation remembers its instructions; rules and skills editors |
+| `40259b6` | Frontmatter split fix — conversations stopped being unreadable |
+| `c4a9149` | Standing rules from RULES.md, and skills the model can invoke |
+| `f7d7f55` | Python, Node, Maven and Ruby; scripts in `run_program`; Kotlin diagnostics |
+| `ef1a0f0` | Project picker in the toolbar and a Projects tab in Settings |
+| `95883e4` | `read_app_log`, `run_tests` filter, tool-name collision warning |
+| `5651b12` | Projects, and `run_program` — the assistant can run what it builds |
+| `2e88414` | Tool arguments keep their shape (fixed `edit_file` failing 100% of the time) |
+| `78af4eb` | Build and test tools (`list_projects`, `build_project`, `run_tests`) |
+| `8b87192` | Drag a group header to reorder it, click to fold |
+| `22f7a96` | Context window meter + auto-compaction |
+| `d7f99d8` | Per-mode standing instructions (Chat/Coding/Scientific) |
+
+## Uncommitted work in the tree
+
+Nothing. All 363 tests pass and the app launches with `run_subagent` registered.
+
+**`publish\SNChat.App.exe` is from 16:10 and predates subagents.** It has the git tools and
+both loop fixes, so an unattended run works; it just has no `run_subagent`. Republish to
+try delegation from the app.
+
+## Where to pick up
+
+**All five stages are done.** The plan in `DEVELOPMENT_PLAN.md` is complete.
+
+Stage 4 has been driven by a real unattended run against the 27B local model: it ran the
+checks, read the failures, fixed the code, re-ran, and called `task_complete` correctly.
+That run is what found the two bugs in `964f283`.
+
+`C:\ai-playground\autoloop-test` is the fixture for repeating it - a Python project with two
+deliberate bugs and a `check.py` that names them. Reset it with
+`git -C C:\ai-playground\autoloop-test reset --hard 18d5cf0` to put the bugs back.
+
+**Stage 5, subagents, has never been exercised by a real model.** Its wiring is verified -
+the app starts, `run_subagent` registers, the defaults seed - and the logic is covered by
+22 tests against a stub provider. What is untested is whether a 27B model *delegates
+sensibly*: it has to write a self-contained task for an assistant that cannot see the
+conversation, which is a harder thing to ask of a small model than calling an ordinary tool.
+Watch the first real delegation before trusting it, and see the risk note at the end of
+`DEVELOPMENT_PLAN.md`.
+
+Known gaps, in rough order of how much they matter:
+
+- **Tool results are never shown to the user.** During an unattended run that is most of
+  what is happening; `AgentStatus` reports only "step N of M". A subagent makes this worse:
+  its whole run is invisible, and it can take minutes.
+- **There is no UI for subagents.** They are markdown files under `%APPDATA%\SNChat\agents`,
+  hand-edited. Skills and projects both got editors; this did not.
+- Maven and Ruby/Rails remain written to spec; neither is installed here.
+
+## Commands that matter
+
+```bash
+dotnet build SNChat.slnx
+dotnet test SNChat.Tests/SNChat.Tests.csproj      # 363 passing as of 2026-09-06
+
+# Publish: single file. IncludeNativeLibrariesForSelfExtract is NOT optional -
+# without it five native WPF DLLs land beside the exe and it is not single-file.
+# Close the running app first; it locks publish\SNChat.App.exe.
+dotnet publish SNChat.App/SNChat.App.csproj -c Release -r win-x64 \
+  --self-contained true -p:PublishSingleFile=true \
+  -p:IncludeNativeLibrariesForSelfExtract=true -o publish
+```
+
+**Run the test suite with the registry-only PATH**, not from a developer command prompt —
+the latter hides an entire class of bug (see the Visual Studio finding below):
+
+```powershell
+powershell -NoProfile -Command "$env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User'); dotnet test SNChat.Tests/SNChat.Tests.csproj"
+```
+
+## Conventions in this repo
+
+- **Tests**: xUnit, prose sentence names (`A_compacted_message_is_still_compacted_when_it_is_read_back`).
+  Comments say *why* the case matters, not what the code does.
+- **Comments**: explain the reason and the failure that motivated the code. See
+  `WorkspaceGuard.cs` or `ContextMeter.cs` for the house style.
+- **Commits**: one feature each, a descriptive sentence in the imperative
+  ("Let the assistant build and test your own projects"), body explains the non-obvious
+  parts. End with `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
+- **Settings** live in `%APPDATA%\SNChat\config\settings.json`; conversations are markdown
+  with YAML frontmatter under `%APPDATA%\SNChat\conversations`.
+
+## Environment facts for this machine
+
+- Ollama at `localhost:11434`; models `orcarouter/Qwen3.8-27B-Uncensored:latest` (262144
+  context), `qwen2.5:7b` (32768), `gemma4:latest` (131072).
+- Visual Studio 18 Community **and** Build Tools are both installed. `cmake`, `ctest`,
+  `ninja` and `MSBuild` live inside them and are **not on the PATH**.
+- `JAVA_HOME` is set persistently (machine and user) to Android Studio's bundled JBR;
+  `java` is **not** on the PATH. Gradle should inherit it without discovery.
+- MCP servers are hand-configured in settings.json: filesystem scoped to `C:\ai-playground`,
+  and searxng at `localhost:8888`. ~19 MCP tools, costing roughly 16k prompt tokens.
+- Test projects in `C:\ai-playground`: `well_done` (C++/CMake), `FolderTree` (.NET),
+  `AndroidFileFinder` (real Gradle/Kotlin project, useful for testing the untested Android path).
+- Conversations that used to fail to load now load. They were never corrupt: see the
+  frontmatter finding below. Loaded count went from 36 to 42.
+
+## What is verified, and what is only written to spec
+
+Do not trust "it compiles" as evidence. This list says what has actually been run against
+the real thing, because more than one bug this week survived a green build.
+
+| Path | State |
+|---|---|
+| .NET build/test (`dotnet build`, `dotnet test`) | **Verified** — real builds, including a deliberate `CS0103` parsed back with file and line |
+| C++ / CMake / MSVC | **Verified** end-to-end, including with the registry-only PATH and with a real `C3861` error |
+| Visual Studio tool discovery (`ToolchainLocator`) | **Verified** — resolves cmake from the VS install with cmake absent from PATH |
+| Ollama context length from `/api/show` | **Verified** against all three installed models |
+| Python build/run (compileall, script + args + stdin) | **Verified** against real Python 3.14 |
+| Node detection + npm resolution | **Verified** — npm resolves as `npm.cmd` |
+| Java lookup via `JAVA_HOME` | **Verified** — JDK 21 found with `java` absent from PATH |
+| **Maven, Ruby/Rails** | **NEVER RUN.** Neither `mvn` nor `ruby` is installed here; commands written to spec |
+| Tool argument arrays (`ToolArgumentReader`) | **Verified** — probed the real MCP server, and asserted the JSON-RPC payload shape |
+| `run_program` / stdin / arguments | **Verified** — real MSVC-built C++ programs run, stdin fed and drained, args with spaces preserved |
+| **Gradle / Kotlin / Android** | **Verified** — `gradlew assembleDebug` builds AndroidFileFinder using the Android Studio JBR via `JAVA_HOME`; a deliberate Kotlin error was captured and is now parsed |
+| `GoogleWebSource` / `GoogleImageSource` | Complete and wired, **never exercised** against a successful response — the API appears closed to new projects |
+| OpenRouter provider | Argument handling fixed alongside Ollama's but **not re-tested live** after that change |
+| Autonomous loop end-to-end | **Verified** — a real unattended run against the 27B local model fixed two deliberate bugs and called `task_complete` |
+| Subagent wiring (`run_subagent`) | **Verified** — the app starts with no DI cycle, the tool registers, the defaults seed and round-trip |
+| **A model actually delegating** | **NEVER RUN.** All 22 subagent tests use a stub provider. Whether a 27B model writes a usable self-contained task is unknown |
+
+Test count is **363 passing** at the subagents commit. If your count is lower, check you are
+on that commit before assuming you broke something.
+
+Also stale and not to be trusted: `README.md`, `SESSION_SUMMARY.md`, `CHANGELOG.md` all
+date to 2026-08-30. In this file, trust the section you are reading plus
+*"Non-obvious findings"*; everything from *"Quick Start (historical)"* onward is history.
 
 ## Completed Work
 
@@ -326,6 +471,124 @@ in the streaming overlay (status chunks are shown but never persisted).
 
 ### Non-obvious findings (worth not rediscovering)
 
+#### From 2026-09-06 (subagents)
+
+**A subagent must never be given `task_complete`, and the reason is invisible.**
+`AgentSignals` is one shared singleton — there is no per-conversation instance of it. A
+subagent calling `task_complete` would therefore not be reporting its own completion; it
+would be telling the *parent's* autonomous loop that the entire run had finished. A
+delegated search would end the job it was sent to help with, and the symptom would be a run
+that stopped early for no visible reason. `RunSubagentTool.NeverDelegated` withholds it
+along with `run_subagent` itself, whatever a definition asks for. Both are tested.
+
+**The subagent tool is in a three-way DI cycle.** It needs `IToolRegistry` to know what it
+may pass on; the registry factory registers it; the providers are built from the registry.
+Constructor injection deadlocks the container at startup. It takes `Func<IToolRegistry>`
+and `Func<ILLMProviderFactory>` instead, and is constructed by hand in `App.xaml.cs`. This
+only fails at runtime, never at build — the app has to actually be launched to prove it.
+
+**`AgentDefinitionService` is synchronous on purpose, and should stay that way.** Its
+neighbours are all async, but this one is read from a DI factory on the WPF UI thread at
+startup. Blocking on a Task whose continuation wants that same thread is a deadlock, and
+`await File.ReadAllTextAsync` without `ConfigureAwait(false)` is exactly that continuation.
+These are a handful of one-kilobyte files; async bought nothing and cost a hang.
+
+**Defaults seed once ever, not once per empty folder.** Tracked by a `.seeded` marker
+written *before* the agents. Seeding whenever the folder is empty would mean deleting the
+agents you do not want gets undone at the next launch, with no way to turn the feature off.
+The marker goes first so a half-failed seed does not duplicate on the next run.
+
+**An agent whose tools are all missing is refused rather than run.** The likely cause is a
+definition naming MCP tools from a server that is not running — the `explorer` default is
+mostly MCP filesystem tools. Handed no tools, a model still answers, confidently and from
+nothing, and the parent has no way to tell that from a real finding.
+
+#### From 2026-09-05/06 (context meter, build tools, tool arguments)
+
+**Frontmatter was split on the substring "---", which silently lost conversations.**
+`content.Split("---")` splits wherever those three characters appear, not on delimiter
+lines. A conversation whose first message carried an attachment is auto-titled
+`--- Attached image: photo.jpg ---`; YAML writes that as a folded scalar across several
+lines; the reader then parsed frontmatter only as far as the first hyphens, `created` went
+missing, and the file threw `KeyNotFoundException` forever. The files on disk were written
+perfectly well - the reader was broken - and six conversations were sitting unreadable.
+These had been dismissed as "corrupt, pre-existing, harmless" three times in one session
+before anyone actually opened one. `MarkdownDocument.TrySplit` now splits on delimiter
+lines; `TemplateService` and `ProjectService` had copied the same broken split. A first
+fix that trimmed both ends was still wrong: YAML indents a block scalar's content by two
+spaces, so a value containing three hyphens yields a line reading `  ---`, which trimming
+turned back into a delimiter. A delimiter is a line at column zero and nothing else. Caught
+only because a test round-tripped a multi-line system prompt through real YAML.
+
+**A safety check placed after the work it protects will fire on that work.** The git
+checkpoint ran after the first reply, but the first reply is when the model edits files - so
+the folder was dirty from the run's own changes and the run refused to continue because of
+them. From outside it looked like the assistant stopping to ask permission for no reason.
+Only a real unattended run could show this; every unit test passed throughout. Take the
+checkpoint before anything is touched.
+
+**The Kotlin compiler's diagnostics look like nothing else.** A real Android build prints
+`e: file:///C:/app/src/.../Thing.kt:6:17 Unresolved reference 'foo'.` — a bare `e:` instead
+of the word error, a `file://` URI instead of a path, and no colon before the message. None
+of the existing patterns matched it, so every Kotlin error was invisible and the model was
+told only that the build failed. Found by adding a deliberately broken file to
+`AndroidFileFinder` and reading the real output; there is now a test using that exact line.
+Paths are percent-decoded, since any project under a folder with a space arrives with %20.
+
+**Visual Studio bundles cmake, ctest, ninja and MSBuild and puts none of them on the
+PATH.** A developer command prompt adds them, so they look installed when you check from
+one — but the app is launched from Explorer and inherits the plain registry PATH, where a
+bare `cmake` fails with "the system cannot find the file specified" on a machine that
+plainly has CMake. `ToolchainLocator` resolves: explicit setting → PATH → every Visual
+Studio installation. **Use `vswhere -all`, never `-latest`**: on this machine `-latest`
+returns the Build Tools install, not the Community one. The compiler needs no such help —
+CMake's Visual Studio generator locates MSVC through the installation, so a build works
+with no developer environment once cmake itself is found (verified with the registry-only
+PATH). Corollary: **always run the test suite with the registry-only PATH**, or this whole
+class of bug is invisible.
+
+**Tool arguments that are arrays or objects were flattened to strings.** Both providers
+unpacked model tool-call arguments with `_ => property.Value.GetRawText()`, so an array
+arrived at the tool as a *string of JSON*. The MCP filesystem server answers
+`-32602 Invalid input: expected array, received string at edits`, so `edit_file` failed
+**100% of the time** while every tool taking only scalars worked perfectly. That pattern
+reads exactly like a model too weak to use the tool — it is not. A 100% failure rate is
+structural; model weakness fails intermittently. Fixed in
+`SNChat.LLM/Providers/Base/ToolArgumentReader.cs`. Note the related trap in the same code:
+`TryGetInt64(out var l) ? l : GetDouble()` has common type `double`, so whole numbers get
+widened — an explicit `(object)` cast is required.
+
+**MCP `edit_file` is forgiving, so a rejection usually means a shape problem.** Probed
+directly: wrong indentation, trailing whitespace, and either line ending are all accepted.
+It only refuses when `oldText` genuinely is not in the file. So if edits fail, suspect the
+argument shape before suspecting the model's copying.
+
+**Ollama's model list reported a hardcoded 4096 context for every model.** The real length
+comes from `POST /api/show`, under `model_info` at a key ending `.context_length` (the
+prefix is the architecture, e.g. `qwen35.context_length`). On this machine that is 262144
+versus the hardcoded 4096 — a 64× error, which drove the context meter to 100% on the first
+message and triggered a needless compaction. `num_ctx` is now also settable, which pins
+what Ollama actually serves so the meter and the request agree.
+
+**Tool definitions dominate the prompt.** Nineteen MCP tools cost ~16k tokens against ~130
+for the message that prompted them. Any context estimate that ignores them reads near zero
+until the provider's first real count arrives, then jumps to full. `TokenEstimator.EstimateTools`
+counts them; they must **not** be added on top of a provider-measured prompt, which already
+includes them.
+
+**`ConversationMetadata.CustomData` is never serialised.** It exists on the model but
+`StorageService.GenerateMarkdown` does not write it, so anything put there is silently lost.
+Add real frontmatter fields instead.
+
+**`ToolRegistry.Register` is last-write-wins on a case-insensitive name, and MCP tools
+register *after* the built-ins.** An MCP server exposing `build_project` would silently
+shadow ours with no warning.
+
+**A cancelled turn diverges the two message collections.** `ChatViewModel` adds the
+assistant message to `Messages` (the view) immediately, but to
+`CurrentConversation.Messages` only on success. After a cancel the view has a message the
+conversation does not, and it is never saved.
+
 **Nested scroll viewers block the mouse wheel.** Every message renders a
 MarkdownViewer, which contains its own FlowDocumentScrollViewer > ScrollViewer.
 That inner scroller marks the bubbling MouseWheel event handled, so the message
@@ -443,7 +706,11 @@ signal there; judge by payload.
 - Keyboard shortcuts (Ctrl+N for new, Ctrl+F for search)
 - Add tooltips and help text
 
-## Quick Start for Next Session
+## Quick Start (historical — written 2026-08-30, kept for the architecture notes)
+
+> Superseded. For current commands, state and next steps see
+> **"Where things stand (read this first)"** at the top of this file. The task suggestions
+> in this section refer to Phase 2 work that has since shipped.
 
 ### Build the Solution
 ```bash

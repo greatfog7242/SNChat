@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using Microsoft.Extensions.Logging;
 using SNChat.Core.Models;
 using YamlDotNet.Serialization;
@@ -17,12 +17,20 @@ public class TemplateService
     private readonly IDeserializer _yamlDeserializer;
     private readonly ILogger<TemplateService> _logger;
 
-    public TemplateService(ILogger<TemplateService> logger)
+    /// <summary>
+    /// <paramref name="templatesDirectory"/> exists so tests can point this at a
+    /// temporary folder. Left null everywhere else, which uses the real location
+    /// under AppData - a service that can only ever write to the user's own
+    /// profile cannot be tested without polluting it.
+    /// </summary>
+    public TemplateService(ILogger<TemplateService> logger, string? templatesDirectory = null)
     {
         _logger = logger;
 
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        _templatesDirectory = Path.Combine(appData, "SNChat", "templates");
+        _templatesDirectory = templatesDirectory ?? Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "SNChat", "templates");
+
         Directory.CreateDirectory(_templatesDirectory);
 
         _yamlSerializer = new SerializerBuilder()
@@ -36,6 +44,46 @@ public class TemplateService
     }
 
     public string TemplatesDirectory => _templatesDirectory;
+
+    /// <summary>
+    /// Whether any template is marked invocable, without fully parsing them all.
+    /// Used at startup to decide whether the skill tools are worth registering,
+    /// which has to happen before anything async has run.
+    ///
+    /// Reads the files looking for the frontmatter flag rather than deserialising
+    /// them, since the answer is usually no and the cost should match.
+    /// </summary>
+    public bool HasInvocableTemplates()
+    {
+        try
+        {
+            if (!Directory.Exists(_templatesDirectory))
+                return false;
+
+            foreach (var file in Directory.EnumerateFiles(_templatesDirectory, "*.md"))
+            {
+                foreach (var line in File.ReadLines(file))
+                {
+                    // Only the frontmatter can carry it, and that ends at the
+                    // second delimiter - stop rather than scan a whole body.
+                    if (line.StartsWith("---", StringComparison.Ordinal) && line.Trim() == "---")
+                        continue;
+
+                    if (line.StartsWith("invocable:", StringComparison.OrdinalIgnoreCase)
+                        && line.Contains("true", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
 
     /// <summary>
     /// Reads every template on disk. A file that fails to parse is skipped and
@@ -177,6 +225,7 @@ public class TemplateService
             description = template.Description,
             category = template.Category,
             system_prompt = template.SystemPrompt,
+            invocable = template.Invocable,
             created = template.CreatedAt.ToString("o"),
             updated = template.UpdatedAt.ToString("o")
         };
@@ -193,17 +242,15 @@ public class TemplateService
 
     private PromptTemplate Parse(string content, string filePath)
     {
-        var parts = content.Split(new[] { "---" }, StringSplitOptions.None);
-        if (parts.Length < 3)
+        // Split on delimiter lines rather than the substring: a prompt or a
+        // description containing three hyphens would otherwise tear the
+        // frontmatter in half.
+        if (!MarkdownDocument.TrySplit(content, out var frontmatterYaml, out var body))
             throw new FormatException("Template is missing its frontmatter");
 
         var frontmatter = _yamlDeserializer
-            .Deserialize<Dictionary<string, object>>(parts[1].Trim())
+            .Deserialize<Dictionary<string, object>>(frontmatterYaml)
             ?? new Dictionary<string, object>();
-
-        // Anything after the closing --- is the body; rejoin in case the prompt
-        // itself contains a --- line.
-        var body = string.Join("---", parts.Skip(2)).TrimStart('\r', '\n');
 
         return new PromptTemplate
         {
@@ -214,6 +261,9 @@ public class TemplateService
             Description = Text(frontmatter, "description", string.Empty),
             Category = Text(frontmatter, "category", "General"),
             SystemPrompt = Text(frontmatter, "system_prompt", string.Empty),
+            // Absent from every template written before skills existed, and
+            // absent means not invocable - the cautious reading.
+            Invocable = bool.TryParse(Text(frontmatter, "invocable", string.Empty), out var invocable) && invocable,
             CreatedAt = TryDate(frontmatter, "created") ?? DateTime.UtcNow,
             UpdatedAt = TryDate(frontmatter, "updated") ?? DateTime.UtcNow,
             Content = body.TrimEnd(),

@@ -25,6 +25,24 @@
                     <StackPanel Margin="20">
                         <TextBlock Text="LLM Provider API Keys" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,15"/>
 
+                        <!-- Ollama needs no key, but it does need an address:
+                             it is often served by another machine on the network. -->
+                        <TextBlock Text="Ollama" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <TextBlock Text="Server URL:" Margin="0,5,0,2"/>
+                        <TextBox Text="{Binding OllamaBaseUrl, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,4"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="0,0,0,10"
+                                   Text="http://localhost:11434 for this machine, or http://&lt;host&gt;:11434 for one on the network. The serving machine must run with OLLAMA_HOST=0.0.0.0 to accept connections from anywhere but itself. Takes effect after a restart."/>
+
+                        <TextBlock Text="Context window (num_ctx):" Margin="0,0,0,2"/>
+                        <TextBox Text="{Binding OllamaContextWindow, UpdateSourceTrigger=PropertyChanged}"
+                                 Width="200"
+                                 HorizontalAlignment="Left"
+                                 Margin="0,0,0,4"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="0,0,0,6"
+                                   Text="How much conversation Ollama keeps in mind, in tokens. Leave at 0 to let Ollama decide - but then nothing reports what it settled on, so the context meter has to assume the model's full trained length, which is usually more than you are really being served. Setting a figure here makes the meter exact, because the request asks for the same number the meter measures against."/>
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#B26500" Margin="0,0,0,20"
+                                   Text="Raise this carefully. The memory Ollama needs grows with it, and a value your GPU cannot hold will push the model into system RAM - generation gets drastically slower, or the model fails to load. 8192 to 32768 suits most setups. Anything above what the model was trained for is ignored."/>
+
                         <!-- FreeToken -->
                         <TextBlock Text="FreeToken" FontWeight="SemiBold" Margin="0,0,0,5"/>
                         <TextBlock Text="API Key:" Margin="0,5,0,2"/>
@@ -249,7 +267,63 @@
                                   SelectedItem="{Binding DefaultProvider}"
                                   Width="200"
                                   HorizontalAlignment="Left"
-                                  Margin="0,0,0,15"/>
+                                  Margin="0,0,0,20"/>
+
+                        <Separator Margin="0,0,0,15"/>
+
+                        <TextBlock Text="Context Window" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="#666666" Margin="0,0,0,15"
+                                   Text="Every message resends the whole conversation, so a long one eventually fills the model's context window and the request starts failing. Compacting folds the older messages into a summary to make room. They stay on screen and in the saved file, greyed out; only what is sent to the model gets shorter. The meter beside the Tools switch shows how full the window is."/>
+
+                        <CheckBox Content="Compact automatically when the window fills up"
+                                  IsChecked="{Binding AutoCompact}"
+                                  Margin="0,0,0,4"/>
+                        <TextBlock Text="With this off, the meter still fills up but nothing happens until you press Compact."
+                                   FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="20,0,0,15"/>
+
+                        <TextBlock Text="Compact at:" Margin="0,0,0,2"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <Slider Value="{Binding CompactThresholdPercent}"
+                                    Minimum="10"
+                                    Maximum="100"
+                                    Width="300"
+                                    TickFrequency="5"
+                                    IsSnapToTickEnabled="True"
+                                    VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding CompactThresholdPercent, StringFormat='{}{0}% full'}"
+                                       Margin="10,0,0,0"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="0,0,0,15"
+                                   Text="Leave room below 100%: the reply has to fit alongside the prompt, and compacting itself needs space to send what it is summarizing. The meter turns amber ten points before this and red on reaching it."/>
+
+                        <TextBlock Text="Messages left untouched:" Margin="0,0,0,2"/>
+                        <TextBox Text="{Binding KeepRecentMessages, UpdateSourceTrigger=PropertyChanged}"
+                                 Width="200"
+                                 HorizontalAlignment="Left"
+                                 Margin="0,0,0,4"/>
+                        <TextBlock Text="The most recent messages are never summarized, since the exchange in progress is what the next answer depends on most."
+                                   FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="0,0,0,15"/>
+
+                        <TextBlock Text="Assumed window size (tokens):" Margin="0,0,0,2"/>
+                        <TextBox Text="{Binding FallbackWindowTokens, UpdateSourceTrigger=PropertyChanged}"
+                                 Width="200"
+                                 HorizontalAlignment="Left"
+                                 Margin="0,0,0,4"/>
+                        <TextBlock Text="Used for models whose provider does not report a context length. Ollama is the usual case - it serves models at 4096 tokens unless the modelfile says otherwise, so raise this only if you have configured yours for more."
+                                   FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="0,0,0,15"/>
+
+                        <TextBlock Text="Tools" FontSize="14" FontWeight="SemiBold" Margin="0,10,0,10"/>
+
+                        <TextBlock Text="Tool calls allowed per reply:" Margin="0,0,0,2"/>
+                        <TextBox Text="{Binding MaxToolIterations, UpdateSourceTrigger=PropertyChanged}"
+                                 Width="200"
+                                 HorizontalAlignment="Left"
+                                 Margin="0,0,0,4"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="0,0,0,4"
+                                   Text="How many rounds of tool calls one reply may make before it has to answer. Reaching it ends the reply with &quot;Stopped after too many tool calls&quot;. Raise it for coding work, which reads, edits, builds and re-runs within a single reply; 25 to 30 is a reasonable ceiling."/>
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="0,0,0,15"
+                                   Text="A round can contain several calls, so the real number allowed is higher than this. Before raising it a long way, check the log - a model burning this many rounds without answering is sometimes stuck rather than working. This is not the same as a project's step limit, which counts whole replies during an unattended run."/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
@@ -292,6 +366,55 @@
             </TabItem>
 
             <!-- Templates Tab -->
+            <TabItem Header="Modes">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="20">
+                        <TextBlock Text="Answering Modes" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,15"/>
+
+                        <TextBlock Text="Each mode carries a standing instruction, sent ahead of the conversation on every message. Pick the mode in the main window, next to Provider and Model. A template's own system prompt is added after whichever of these is active."
+                                   FontSize="12"
+                                   Foreground="#666666"
+                                   TextWrapping="Wrap"
+                                   Margin="0,0,0,15"/>
+
+                        <TextBlock Text="Chat" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <TextBox Text="{Binding ChatModePrompt, UpdateSourceTrigger=PropertyChanged}"
+                                 AcceptsReturn="True"
+                                 TextWrapping="Wrap"
+                                 MinHeight="70"
+                                 MaxHeight="140"
+                                 VerticalScrollBarVisibility="Auto"
+                                 Padding="8,6"
+                                 Margin="0,0,0,15"/>
+
+                        <TextBlock Text="Coding" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <TextBox Text="{Binding CodingModePrompt, UpdateSourceTrigger=PropertyChanged}"
+                                 AcceptsReturn="True"
+                                 TextWrapping="Wrap"
+                                 MinHeight="70"
+                                 MaxHeight="140"
+                                 VerticalScrollBarVisibility="Auto"
+                                 Padding="8,6"
+                                 Margin="0,0,0,15"/>
+
+                        <TextBlock Text="Scientific" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <TextBox Text="{Binding ScientificModePrompt, UpdateSourceTrigger=PropertyChanged}"
+                                 AcceptsReturn="True"
+                                 TextWrapping="Wrap"
+                                 MinHeight="70"
+                                 MaxHeight="140"
+                                 VerticalScrollBarVisibility="Auto"
+                                 Padding="8,6"
+                                 Margin="0,0,0,10"/>
+
+                        <TextBlock Text="Leave one empty to have that mode add nothing of its own."
+                                   FontSize="11"
+                                   Foreground="#999999"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
             <TabItem Header="Templates">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20">
@@ -315,6 +438,289 @@
                                    Foreground="#999999"
                                    TextWrapping="Wrap"
                                    Margin="0,10,0,0"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- Rules and skills: how the assistant is briefed, and what
+                 procedures it may reach for on its own -->
+            <TabItem Header="Rules &amp; skills">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="20">
+                        <TextBlock Text="Rules" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="#666666" Margin="0,0,0,12"
+                                   Text="Standing instructions sent ahead of every message. These apply everywhere; a project can add its own on the Projects tab, and those come after these so they win where the two disagree. Kept as RULES.md files, so you can also edit them in an editor."/>
+
+                        <TextBox Text="{Binding GlobalRules, UpdateSourceTrigger=PropertyChanged}"
+                                 AcceptsReturn="True" TextWrapping="Wrap"
+                                 MinHeight="120" MaxHeight="220"
+                                 VerticalScrollBarVisibility="Auto"
+                                 Padding="8,6"
+                                 Margin="0,0,0,6"/>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                            <Button Content="Save rules" Command="{Binding SaveGlobalRulesCommand}"
+                                    Padding="15,6" Margin="0,0,10,0"/>
+                            <TextBlock Text="{Binding RulesStatus}" FontSize="11" Foreground="#666666"
+                                       TextWrapping="Wrap" VerticalAlignment="Center" MaxWidth="380"/>
+                        </StackPanel>
+
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#B26500" Margin="0,0,0,20"
+                                   Text="Rules are sent with every single message, so they are a standing cost against the context window rather than a one-off. Keep them short; anything very long is truncated."/>
+
+                        <Separator Margin="0,0,0,15"/>
+
+                        <TextBlock Text="Skills" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="#666666" Margin="0,0,0,12"
+                                   Text="A skill is a prompt template the assistant may look up and follow by itself, rather than one you insert by hand. Tick the templates you want it to be able to reach for."/>
+
+                        <Border BorderBrush="#DDDDDD" BorderThickness="1" CornerRadius="4"
+                                Padding="8" Margin="0,0,0,8">
+                            <ScrollViewer Height="160" VerticalScrollBarVisibility="Auto">
+                                <ItemsControl ItemsSource="{Binding SkillCandidates}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="2,3">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <CheckBox Grid.Column="0"
+                                                          IsChecked="{Binding Invocable}"
+                                                          Content="{Binding Name}"
+                                                          VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="1"
+                                                           Text="{Binding Description}"
+                                                           FontSize="10" Foreground="#999999"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           VerticalAlignment="Center"
+                                                           Margin="10,0,0,0"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </Border>
+
+                        <StackPanel Orientation="Horizontal">
+                            <Button Content="Save skills" Command="{Binding SaveSkillsCommand}"
+                                    Padding="15,6" Margin="0,0,10,0"/>
+                            <TextBlock Text="{Binding SkillStatus}" FontSize="11" Foreground="#666666"
+                                       TextWrapping="Wrap" VerticalAlignment="Center" MaxWidth="380"/>
+                        </StackPanel>
+
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="0,10,0,0"
+                                   Text="Every skill is named in a tool description sent with every request, so tick only the ones worth offering. Templates themselves are edited as files under %APPDATA%\SNChat\templates, and via the template picker (Ctrl+T)."/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- Projects: the folders the assistant may work in -->
+            <TabItem Header="Projects">
+                <Grid Margin="20">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="220"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Grid.ColumnSpan="2"
+                               Text="Projects" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+
+                    <ListBox Grid.Row="1" Grid.Column="0"
+                             ItemsSource="{Binding Projects}"
+                             SelectedItem="{Binding SelectedProject}"
+                             DisplayMemberPath="Name"
+                             Margin="0,0,15,0"/>
+
+                    <!-- Editor for whichever project is selected -->
+                    <ScrollViewer Grid.Row="1" Grid.Column="1" VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="#666666" Margin="0,0,0,12"
+                                       Text="A project is a folder the assistant may build and run in, together with how much it may do without asking. Adding one grants it permission for that folder - you do not need to list the path under Build tools as well."/>
+
+                            <StackPanel Visibility="{Binding HasSelectedProject,
+                                                     Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <TextBlock Text="Name:" Margin="0,0,0,2"/>
+                                <TextBox Text="{Binding SelectedProject.Name, UpdateSourceTrigger=PropertyChanged}"
+                                         Margin="0,0,0,10"/>
+
+                                <TextBlock Text="Folder:" Margin="0,0,0,2"/>
+                                <TextBox Text="{Binding SelectedProject.RootPath}"
+                                         IsReadOnly="True"
+                                         Background="#F5F5F5"
+                                         FontFamily="Consolas, Courier New, monospace"
+                                         Margin="0,0,0,10"/>
+
+                                <TextBlock Text="How much it may do on its own:" Margin="0,0,0,2"/>
+                                <ComboBox ItemsSource="{Binding AutonomyOptions}"
+                                          SelectedItem="{Binding SelectedProject.Autonomy}"
+                                          Width="220" HorizontalAlignment="Left" Margin="0,0,0,4"/>
+                                <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="0,0,0,12"
+                                           Text="Manual is today's behaviour - one reply per message. StepApprove keeps working but stops to ask before each step. FullAuto carries on until it reports the task done or a budget runs out. Start with StepApprove until you have watched a model work on this project; a model that loops confidently into wrong work does the most damage unobserved."/>
+
+                                <TextBlock Text="Stop after this many steps:" Margin="0,0,0,2"/>
+                                <TextBox Text="{Binding SelectedProject.MaxLoopIterations, UpdateSourceTrigger=PropertyChanged}"
+                                         Width="120" HorizontalAlignment="Left" Margin="0,0,0,10"/>
+
+                                <TextBlock Text="Stop after this many minutes:" Margin="0,0,0,2"/>
+                                <TextBox Text="{Binding SelectedProject.MaxLoopMinutes, UpdateSourceTrigger=PropertyChanged}"
+                                         Width="120" HorizontalAlignment="Left" Margin="0,0,0,10"/>
+
+                                <CheckBox Content="Take a git checkpoint before running unattended"
+                                          IsChecked="{Binding SelectedProject.RequireGitCheckpoint}"
+                                          Margin="0,0,0,4"/>
+                                <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="20,0,0,12"
+                                           Text="Unattended work that writes files and runs programs needs a way back, and git is the way back that already exists. With this on, an automatic run will not start in a folder that is not a clean repository."/>
+
+                                <TextBlock Text="Rules for this project:" Margin="0,0,0,2"/>
+                                <TextBox Text="{Binding ProjectRules, UpdateSourceTrigger=PropertyChanged}"
+                                         AcceptsReturn="True" TextWrapping="Wrap"
+                                         MinHeight="70" MaxHeight="140"
+                                         VerticalScrollBarVisibility="Auto"
+                                         Margin="0,0,0,4"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                    <Button Content="Save project rules"
+                                            Command="{Binding SaveProjectRulesCommand}"
+                                            Padding="12,4" Margin="0,0,10,0"/>
+                                    <TextBlock Text="{Binding RulesStatus}" FontSize="11"
+                                               Foreground="#666666" TextWrapping="Wrap"
+                                               VerticalAlignment="Center" MaxWidth="280"/>
+                                </StackPanel>
+                                <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="0,0,0,12"
+                                           Text="Sent with every message while working in this project, after the rules that apply everywhere. Saved as RULES.md in the project folder, so it can be committed with the code it describes."/>
+
+                                <TextBlock Text="Notes:" Margin="0,0,0,2"/>
+                                <TextBox Text="{Binding SelectedProject.Notes, UpdateSourceTrigger=PropertyChanged}"
+                                         AcceptsReturn="True" TextWrapping="Wrap"
+                                         MinHeight="60" MaxHeight="120"
+                                         VerticalScrollBarVisibility="Auto"
+                                         Margin="0,0,0,10"/>
+
+                                <Button Content="Save project"
+                                        Command="{Binding SaveProjectCommand}"
+                                        Padding="15,6" HorizontalAlignment="Left"/>
+                            </StackPanel>
+
+                            <TextBlock Text="Select a project on the left, or add one."
+                                       Foreground="#999999" FontStyle="Italic"
+                                       Visibility="{Binding HasSelectedProject,
+                                                    Converter={StaticResource InverseBooleanToVisibilityConverter}}"/>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <StackPanel Grid.Row="2" Grid.Column="0" Orientation="Horizontal" Margin="0,10,0,0">
+                        <Button Content="Add..." Command="{Binding AddProjectCommand}"
+                                Padding="12,5" Margin="0,0,8,0"/>
+                        <Button Content="Remove" Command="{Binding RemoveProjectCommand}"
+                                IsEnabled="{Binding HasSelectedProject}"
+                                Padding="12,5"/>
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="2" Grid.Column="1"
+                               Text="{Binding ProjectStatus}"
+                               FontSize="11" Foreground="#666666"
+                               TextWrapping="Wrap" VerticalAlignment="Center"
+                               Margin="0,10,0,0"/>
+                </Grid>
+            </TabItem>
+
+            <!-- Build tools: lets the model compile and test local projects -->
+            <TabItem Header="Build tools">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="20">
+                        <TextBlock Text="Build and Test Tools" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="#666666" Margin="0,0,0,12"
+                                   Text="Lets the assistant compile your projects and run their tests using the toolchains already installed - dotnet and MSBuild for Visual Studio work, the Gradle wrapper for Android Studio projects. It reads back the compiler errors, so it can fix a break and check the fix."/>
+
+                        <Border Background="#FFF3E0" BorderBrush="#FFB74D" BorderThickness="1"
+                                Padding="10" CornerRadius="4" Margin="0,0,0,15">
+                            <StackPanel>
+                                <TextBlock Text="Read this before adding a folder" FontWeight="SemiBold" FontSize="12" Margin="0,0,0,4"/>
+                                <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#555555">
+                                    Building a project runs that project's own scripts - MSBuild targets, build.gradle
+                                    and pre-build events all execute code. Running its tests executes the project's code
+                                    directly.<LineBreak/><LineBreak/>
+                                    This assistant also reads web search results and files from MCP servers, so text it
+                                    has been given could try to talk it into building something you did not intend. It
+                                    can only ever act inside the folders listed below, so list only projects you already
+                                    trust and would run yourself.
+                                </TextBlock>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="Project folders the assistant may build (one per line):" Margin="0,0,0,2"/>
+                        <TextBox Text="{Binding BuildAllowedRoots, UpdateSourceTrigger=PropertyChanged}"
+                                 AcceptsReturn="True"
+                                 TextWrapping="NoWrap"
+                                 MinHeight="80"
+                                 MaxHeight="160"
+                                 VerticalScrollBarVisibility="Auto"
+                                 HorizontalScrollBarVisibility="Auto"
+                                 FontFamily="Consolas, Courier New, monospace"
+                                 Padding="6,4"
+                                 Margin="0,0,0,4"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="0,0,0,15"
+                                   Text="Everything inside a listed folder is included. Leave this empty to switch the build tools off completely - which is the default, and while it is empty the tools are not offered to the model at all."/>
+
+                        <CheckBox Content="Allow running tests, not just building"
+                                  IsChecked="{Binding BuildAllowTests}"
+                                  Margin="0,0,0,4"/>
+                        <TextBlock Text="Separate from building because a test suite runs your project's own code, while compiling it does not."
+                                   FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="20,0,0,15"/>
+
+                        <CheckBox Content="Allow running programs it has built"
+                                  IsChecked="{Binding BuildAllowRun}"
+                                  Margin="0,0,0,4"/>
+                        <TextBlock Text="A step beyond building: this runs a binary the assistant itself produced. Still confined to the folders above, so in practice that means something it compiled there. Without it, it can compile your code but never see it work."
+                                   FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="20,0,0,15"/>
+
+                        <CheckBox Content="Allow committing its own work to git"
+                                  IsChecked="{Binding BuildAllowCommit}"
+                                  Margin="0,0,0,4"/>
+                        <TextBlock Text="Only status and commit - never push, reset, checkout or clean, so it cannot send anything anywhere or destroy the checkpoint an unattended run reset to. With this off, a run that needs to save stops and asks you."
+                                   FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="20,0,0,15"/>
+
+                        <TextBlock Text="Time limit per build or test run (seconds):" Margin="0,0,0,2"/>
+                        <TextBox Text="{Binding BuildTimeoutSeconds, UpdateSourceTrigger=PropertyChanged}"
+                                 Width="200"
+                                 HorizontalAlignment="Left"
+                                 Margin="0,0,0,4"/>
+                        <TextBlock Text="When it runs out the command and everything it started are stopped, so a hung build cannot hold the conversation open."
+                                   FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="0,0,0,15"/>
+
+                        <TextBlock Text="Time limit per program run (seconds):" Margin="0,0,0,2"/>
+                        <TextBox Text="{Binding BuildRunTimeoutSeconds, UpdateSourceTrigger=PropertyChanged}"
+                                 Width="200"
+                                 HorizontalAlignment="Left"
+                                 Margin="0,0,0,4"/>
+                        <TextBlock Text="Much shorter than the build limit, and deliberately: a program waiting on input it will never receive would otherwise hold the conversation for the full five minutes."
+                                   FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="0,0,0,15"/>
+
+                        <TextBlock Text="dotnet executable:" Margin="0,0,0,2"/>
+                        <TextBox Text="{Binding BuildDotnetPath, UpdateSourceTrigger=PropertyChanged}"
+                                 Margin="0,0,0,4"/>
+                        <TextBlock Text="Just 'dotnet' finds it on PATH. Give a full path if you have several SDKs and the wrong one is picked."
+                                   FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="0,0,0,15"/>
+
+                        <TextBlock Text="cmake executable (optional):" Margin="0,0,0,2"/>
+                        <TextBox Text="{Binding BuildCMakePath, UpdateSourceTrigger=PropertyChanged}"
+                                 Margin="0,0,0,4"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="0,0,0,15"
+                                   Text="Leave empty for the usual case. The PATH is searched first, then every Visual Studio installation - Visual Studio bundles cmake but does not put it on the PATH, so it is invisible to anything not started from a developer command prompt. Set a full path only to force a particular copy. ctest is taken from the same folder."/>
+
+                        <TextBlock Text="MSBuild.exe (optional):" Margin="0,0,0,2"/>
+                        <TextBox Text="{Binding BuildMsBuildPath, UpdateSourceTrigger=PropertyChanged}"
+                                 Margin="0,0,0,4"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="0,0,0,15"
+                                   Text="Leave empty to always use dotnet. Point this at Visual Studio's MSBuild.exe if your solutions include classic .NET Framework projects, which dotnet build cannot build. It usually sits under ...\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe"/>
+
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#999999"
+                                   Text="Android projects are built with the gradlew wrapper checked into the project, so Gradle itself does not need installing. Changes here take effect after a restart."/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

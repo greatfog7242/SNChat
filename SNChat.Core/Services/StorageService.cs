@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using YamlDotNet.Serialization;
@@ -43,9 +43,15 @@ public class StorageService : IStorageService
 
     public string GetConversationFilePath(Guid id)
     {
-        var conversationDir = GetConversationDirectory(id);
+        // Stays in the folder it was first filed under, so a conversation
+        // continued after a month boundary does not split in two and leave its
+        // attachments behind.
+        var conversationDir = FindConversationDirectory(id) ?? GetConversationDirectory(id);
+
         Directory.CreateDirectory(conversationDir);
-        Directory.CreateDirectory(Path.Combine(conversationDir, "attachments"));
+        Directory.CreateDirectory(
+            Path.Combine(conversationDir, ConversationPaths.AttachmentsFolderName));
+
         return Path.Combine(conversationDir, "conversation.md");
     }
 
@@ -135,8 +141,33 @@ public class StorageService : IStorageService
 
     public string GetAttachmentsDirectory(Guid conversationId)
     {
-        var conversationDir = GetConversationDirectory(conversationId);
-        return Path.Combine(conversationDir, "attachments");
+        // Deliberately not GetConversationDirectory: that derives the month
+        // folder from today, so a conversation started last month would have its
+        // attachments written beside a conversation.md that is not there.
+        var conversationDir = FindConversationDirectory(conversationId)
+                              ?? GetConversationDirectory(conversationId);
+
+        return Path.Combine(conversationDir, ConversationPaths.AttachmentsFolderName);
+    }
+
+    /// <summary>
+    /// Locates the folder a conversation already occupies, whichever month it
+    /// was filed under. Returns null when it has never been saved.
+    /// </summary>
+    private string? FindConversationDirectory(Guid id)
+    {
+        var conversationsDir = Path.Combine(_baseDirectory, "conversations");
+        if (!Directory.Exists(conversationsDir))
+            return null;
+
+        foreach (var monthDir in Directory.GetDirectories(conversationsDir))
+        {
+            var candidate = Path.Combine(monthDir, id.ToString());
+            if (Directory.Exists(candidate))
+                return candidate;
+        }
+
+        return null;
     }
 
     private string GenerateMarkdown(Conversation conversation)
@@ -156,6 +187,9 @@ public class StorageService : IStorageService
             provider = conversation.Metadata.Provider,
             parent_branch = conversation.ParentBranchId,
             branch_point = conversation.BranchPoint,
+            project = conversation.ProjectId,
+            system_prompt = conversation.SystemPrompt,
+            template = conversation.TemplateName,
             tags = conversation.Metadata.Tags,
             total_prompt_tokens = conversation.Metadata.TotalPromptTokens,
             total_completion_tokens = conversation.Metadata.TotalCompletionTokens,
@@ -177,12 +211,22 @@ public class StorageService : IStorageService
         sb.AppendLine();
 
         // Messages
+        var conversationDirectory = Path.GetDirectoryName(conversation.FilePath)
+                                    ?? GetConversationDirectory(conversation.Id);
+
         for (int i = 0; i < conversation.Messages.Count; i++)
         {
             var message = conversation.Messages[i];
 
             sb.AppendLine(MessageHeader.Format(i + 1, message));
-            sb.AppendLine(message.Content);
+
+            // A tool exchange carries its call's arguments as well as its
+            // result, so the call can be rebuilt when the conversation is resent.
+            var body = message.IsToolExchange
+                ? ToolExchangeFormat.Write(message)
+                : message.Content;
+
+            sb.AppendLine(ConversationPaths.ReduceForStorage(body, conversationDirectory));
             sb.AppendLine();
         }
 
@@ -191,14 +235,12 @@ public class StorageService : IStorageService
 
     private Conversation ParseMarkdown(string content, string filePath)
     {
-        // Split frontmatter and body
-        var parts = content.Split(new[] { "---" }, StringSplitOptions.None);
-
-        if (parts.Length < 3)
+        // Split on delimiter lines, not on the substring. A title containing
+        // three hyphens - which every attachment-first conversation has, since
+        // the title comes from "--- Attached image: ... ---" - used to tear the
+        // frontmatter in half and make the conversation permanently unreadable.
+        if (!MarkdownDocument.TrySplit(content, out var frontmatterYaml, out var body))
             throw new FormatException("Invalid markdown format: missing frontmatter");
-
-        var frontmatterYaml = parts[1].Trim();
-        var body = string.Join("---", parts.Skip(2)).Trim();
 
         // Parse frontmatter
         var frontmatter = _yamlDeserializer.Deserialize<Dictionary<string, object>>(frontmatterYaml);
@@ -228,6 +270,21 @@ public class StorageService : IStorageService
 
         if (frontmatter.ContainsKey("branch_point"))
             conversation.BranchPoint = Convert.ToInt32(frontmatter["branch_point"]);
+
+        if (frontmatter.ContainsKey("system_prompt"))
+            conversation.SystemPrompt = frontmatter["system_prompt"]?.ToString() ?? string.Empty;
+
+        if (frontmatter.ContainsKey("template"))
+            conversation.TemplateName = frontmatter["template"]?.ToString() ?? string.Empty;
+
+        // Absent from anything saved before projects existed, so it is read only
+        // when present and otherwise leaves the conversation unattached.
+        if (frontmatter.ContainsKey("project"))
+        {
+            var raw = frontmatter["project"]?.ToString();
+            if (!string.IsNullOrWhiteSpace(raw) && Guid.TryParse(raw, out var projectId))
+                conversation.ProjectId = projectId;
+        }
 
         if (frontmatter.ContainsKey("tags") && frontmatter["tags"] is List<object> tags)
             conversation.Metadata.Tags = tags.Select(t => t.ToString()!).ToList();
@@ -266,6 +323,7 @@ public class StorageService : IStorageService
         }
 
         // Parse messages from markdown body
+        var conversationDirectory = Path.GetDirectoryName(filePath)!;
         var messageBlocks = body.Split(new[] { "## Message " }, StringSplitOptions.RemoveEmptyEntries);
 
         for (int i = 0; i < messageBlocks.Length; i++)
@@ -285,10 +343,19 @@ public class StorageService : IStorageService
             if (!MessageHeader.TryParse(header, out var role, out var timestamp, out var facts))
                 continue;
 
+            var resolved = ConversationPaths.ResolveForDisplay(messageContent, conversationDirectory);
+            var toolArguments = string.Empty;
+
+            if (role == MessageRole.Tool)
+                (toolArguments, resolved) = ToolExchangeFormat.Read(resolved);
+
             conversation.Messages.Add(new Message
             {
                 Role = role,
-                Content = messageContent,
+                Content = resolved,
+                ToolName = facts.ToolName,
+                ToolCallId = facts.ToolCallId,
+                ToolArguments = toolArguments,
                 Timestamp = timestamp,
                 Index = i,
                 Provider = facts.Provider,
@@ -296,7 +363,10 @@ public class StorageService : IStorageService
                 PromptTokens = facts.PromptTokens,
                 CompletionTokens = facts.CompletionTokens,
                 ReasoningTokens = facts.ReasoningTokens,
-                Cost = facts.Cost
+                Cost = facts.Cost,
+                IsAutoContinue = facts.IsAutoContinue,
+                IsCompacted = facts.IsCompacted,
+                IsCompactionSummary = facts.IsCompactionSummary
             });
         }
 

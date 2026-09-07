@@ -1,4 +1,5 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
+using System.IO;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -29,6 +30,9 @@ public partial class SettingsViewModel : ObservableObject
 {
     private readonly SettingsService _settingsService;
     private readonly OpenRouterProvider _openRouter;
+    private readonly ProjectService _projectService;
+    private readonly RulesService _rules;
+    private readonly TemplateService _templates;
     private readonly ILogger<SettingsViewModel> _logger;
 
     /// <summary>Every tool-capable model, kept so filtering does not refetch.</summary>
@@ -47,6 +51,13 @@ public partial class SettingsViewModel : ObservableObject
     private string _openRouterModelStatus = "Load the list to choose which models appear in the main window.";
 
     // Provider Settings
+    [ObservableProperty]
+    private string _ollamaBaseUrl = "http://localhost:11434";
+
+    /// <summary>num_ctx for Ollama requests; 0 leaves the sizing to Ollama.</summary>
+    [ObservableProperty]
+    private int _ollamaContextWindow;
+
     [ObservableProperty]
     private string _freeTokenApiKey = string.Empty;
 
@@ -87,6 +98,17 @@ public partial class SettingsViewModel : ObservableObject
     public IReadOnlyList<string> ImageSourceOptions => ImageSourcePreference.All;
     public IReadOnlyList<string> WebSourceOptions => WebSourcePreference.All;
 
+    // Mode prompts, sent ahead of the conversation for whichever mode is picked
+    // in the main window.
+    [ObservableProperty]
+    private string _chatModePrompt = string.Empty;
+
+    [ObservableProperty]
+    private string _codingModePrompt = string.Empty;
+
+    [ObservableProperty]
+    private string _scientificModePrompt = string.Empty;
+
     // Default Parameters
     [ObservableProperty]
     private double _defaultTemperature = 0.7;
@@ -102,6 +124,20 @@ public partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty]
     private string _defaultModel = string.Empty;
+
+    // Context window: when to fold the older messages into a summary so the
+    // history keeps fitting.
+    [ObservableProperty]
+    private bool _autoCompact = true;
+
+    [ObservableProperty]
+    private int _compactThresholdPercent = 80;
+
+    [ObservableProperty]
+    private int _keepRecentMessages = 6;
+
+    [ObservableProperty]
+    private int _fallbackWindowTokens = 8192;
 
     // UI Preferences
     [ObservableProperty]
@@ -129,6 +165,84 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private int _maxConversationsToKeep = 1000;
 
+    // Build tools. The allowed folders are edited as one per line, which suits a
+    // list that is usually one or two entries and occasionally hand-pasted.
+    [ObservableProperty]
+    private string _buildAllowedRoots = string.Empty;
+
+    [ObservableProperty]
+    private bool _buildAllowTests = true;
+
+    [ObservableProperty]
+    private bool _buildAllowRun = true;
+
+    [ObservableProperty]
+    private bool _buildAllowCommit = true;
+
+    [ObservableProperty]
+    private int _buildTimeoutSeconds = 300;
+
+    [ObservableProperty]
+    private int _buildRunTimeoutSeconds = 60;
+
+    /// <summary>
+    /// How many rounds of tool calls one reply may make. Reaching it produces
+    /// "Stopped after too many tool calls", which until now could only be raised
+    /// by hand-editing settings.json - and it is the limit most likely to be hit
+    /// during ordinary coding work.
+    /// </summary>
+    [ObservableProperty]
+    private int _maxToolIterations = 10;
+
+    [ObservableProperty]
+    private string _buildDotnetPath = "dotnet";
+
+    [ObservableProperty]
+    private string _buildCMakePath = string.Empty;
+
+    [ObservableProperty]
+    private string _buildMsBuildPath = string.Empty;
+
+    // Projects: the folders the assistant may work in, and how much it may do
+    // unattended in each. Saved as they are edited rather than with the Save
+    // button, because each one is its own file.
+    [ObservableProperty]
+    private ObservableCollection<Project> _projects = new();
+
+    [ObservableProperty]
+    private Project? _selectedProject;
+
+    [ObservableProperty]
+    private string _projectStatus = string.Empty;
+
+    public IReadOnlyList<AutonomyMode> AutonomyOptions { get; } =
+        Enum.GetValues<AutonomyMode>();
+
+    public bool HasSelectedProject => SelectedProject != null;
+
+    partial void OnSelectedProjectChanged(Project? value)
+    {
+        OnPropertyChanged(nameof(HasSelectedProject));
+        LoadProjectRules();
+    }
+
+    // Rules and skills. Rules are files rather than settings, so they are
+    // loaded and saved directly rather than through the Save button.
+    [ObservableProperty]
+    private string _globalRules = string.Empty;
+
+    [ObservableProperty]
+    private string _projectRules = string.Empty;
+
+    [ObservableProperty]
+    private string _rulesStatus = string.Empty;
+
+    [ObservableProperty]
+    private ObservableCollection<PromptTemplate> _skillCandidates = new();
+
+    [ObservableProperty]
+    private string _skillStatus = string.Empty;
+
     [ObservableProperty]
     private bool _hasUnsavedChanges;
 
@@ -141,14 +255,255 @@ public partial class SettingsViewModel : ObservableObject
         SettingsService settingsService,
         OpenRouterProvider openRouter,
         ILLMProviderFactory providerFactory,
+        ProjectService projectService,
+        RulesService rules,
+        TemplateService templates,
         ILogger<SettingsViewModel> logger)
     {
         _settingsService = settingsService;
         _openRouter = openRouter;
+        _projectService = projectService;
+        _rules = rules;
+        _templates = templates;
         _logger = logger;
         ProviderOptions = providerFactory.GetAvailableProviders().ToList();
 
         _ = LoadSettingsAsync();
+        _ = LoadProjectsAsync();
+        _ = LoadSkillsAsync();
+        LoadGlobalRules();
+    }
+
+    private async Task LoadProjectsAsync()
+    {
+        try
+        {
+            Projects = new ObservableCollection<Project>(await _projectService.LoadAllAsync());
+            ProjectStatus = Projects.Count == 0
+                ? "No projects yet. Add one to let the assistant build and run in that folder."
+                : $"{Projects.Count} project(s).";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not load projects");
+            ProjectStatus = $"Could not load projects: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Adds a project for a folder the user picks. The folder browser is new to
+    /// this app - nothing else here has ever needed one.
+    /// </summary>
+    [RelayCommand]
+    private async Task AddProjectAsync()
+    {
+        var dialog = new Microsoft.Win32.OpenFolderDialog
+        {
+            Title = "Choose the folder the assistant may work in",
+            Multiselect = false
+        };
+
+        if (dialog.ShowDialog() != true)
+            return;
+
+        var root = dialog.FolderName;
+
+        // Two projects for one folder would give it two different autonomy
+        // settings, and which one applied would depend on which was selected.
+        if (Projects.Any(p => string.Equals(p.RootPath, root, StringComparison.OrdinalIgnoreCase)))
+        {
+            ProjectStatus = "There is already a project for that folder.";
+            return;
+        }
+
+        var project = new Project
+        {
+            Name = new DirectoryInfo(root).Name,
+            RootPath = root
+        };
+
+        await _projectService.SaveAsync(project);
+        Projects.Add(project);
+        SelectedProject = project;
+
+        ProjectStatus = $"Added {project.Name}. Restart the app for its tools to become available.";
+        _logger.LogInformation("Added project {Name} at {Root}", project.Name, root);
+    }
+
+    /// <summary>
+    /// Writes the selected project back. Called from the editor rather than the
+    /// window's Save button, because projects are separate files and the button
+    /// only writes settings.json.
+    /// </summary>
+    [RelayCommand]
+    private async Task SaveProjectAsync()
+    {
+        if (SelectedProject == null)
+            return;
+
+        try
+        {
+            await _projectService.SaveAsync(SelectedProject);
+            ProjectStatus = $"Saved {SelectedProject.Name}.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not save project {Name}", SelectedProject.Name);
+            ProjectStatus = $"Could not save: {ex.Message}";
+        }
+    }
+
+    // --- Rules ---
+    //
+    // Read and written as files rather than through settings.json, so they can
+    // also be edited in a real editor and, for a project, committed with the
+    // code they describe.
+
+    private void LoadGlobalRules() =>
+        GlobalRules = ReadRules(_rules.GlobalRulesPath);
+
+    private void LoadProjectRules() =>
+        ProjectRules = SelectedProject == null
+            ? string.Empty
+            : ReadRules(ProjectRulesPath(SelectedProject));
+
+    private static string ProjectRulesPath(Project project) =>
+        Path.Combine(project.RootPath, RulesService.RulesFileName);
+
+    private string ReadRules(string path)
+    {
+        try
+        {
+            return File.Exists(path) ? File.ReadAllText(path) : string.Empty;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            RulesStatus = $"Could not read {path}: {ex.Message}";
+            return string.Empty;
+        }
+    }
+
+    [RelayCommand]
+    private void SaveGlobalRules() =>
+        WriteRules(_rules.GlobalRulesPath, GlobalRules, "Rules that apply everywhere");
+
+    [RelayCommand]
+    private void SaveProjectRules()
+    {
+        if (SelectedProject == null)
+            return;
+
+        if (!SelectedProject.RootExists)
+        {
+            RulesStatus = "That project's folder no longer exists, so its rules cannot be saved.";
+            return;
+        }
+
+        WriteRules(ProjectRulesPath(SelectedProject), ProjectRules,
+            $"Rules for {SelectedProject.Name}");
+    }
+
+    private void WriteRules(string path, string text, string what)
+    {
+        try
+        {
+            // Blank rules mean no rules. Deleting the file rather than leaving an
+            // empty one keeps "there are none" as the plain state on disk.
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                if (File.Exists(path))
+                    File.Delete(path);
+
+                RulesStatus = $"{what}: removed.";
+                return;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, text.Trim());
+
+            RulesStatus = text.Length > RulesService.MaxCharacters
+                ? $"{what}: saved, but it is over {RulesService.MaxCharacters} characters and " +
+                  "will be truncated. Rules are sent with every message."
+                : $"{what}: saved. It applies from your next message.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not write rules to {Path}", path);
+            RulesStatus = $"Could not save: {ex.Message}";
+        }
+    }
+
+    // --- Skills ---
+
+    private async Task LoadSkillsAsync()
+    {
+        try
+        {
+            SkillCandidates = new ObservableCollection<PromptTemplate>(
+                await _templates.LoadAllAsync());
+
+            var invocable = SkillCandidates.Count(t => t.Invocable);
+
+            SkillStatus = SkillCandidates.Count == 0
+                ? "No templates yet. A skill is a template the assistant may invoke itself."
+                : $"{invocable} of {SkillCandidates.Count} template(s) offered to the assistant.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not load templates");
+            SkillStatus = $"Could not load templates: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Writes back which templates the assistant may invoke. Saved on demand
+    /// rather than per tick, so ticking several is one write each rather than a
+    /// file rewrite per click.
+    /// </summary>
+    [RelayCommand]
+    private async Task SaveSkillsAsync()
+    {
+        try
+        {
+            foreach (var template in SkillCandidates)
+                await _templates.SaveAsync(template);
+
+            var invocable = SkillCandidates.Count(t => t.Invocable);
+
+            SkillStatus = invocable == 0
+                ? "Saved. No skills are offered, so the skill tools will not be registered."
+                : $"Saved. {invocable} skill(s) offered. Restart for the change to take effect.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not save templates");
+            SkillStatus = $"Could not save: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private async Task RemoveProjectAsync()
+    {
+        if (SelectedProject == null)
+            return;
+
+        var project = SelectedProject;
+
+        var confirmed = MessageBox.Show(
+            $"Remove the project \"{project.Name}\"?\n\n" +
+            "This only removes it from SNChat. Nothing in the folder is touched, " +
+            "and the assistant simply loses permission to build and run there.",
+            "Remove project",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (confirmed != MessageBoxResult.Yes)
+            return;
+
+        await _projectService.DeleteAsync(project);
+        Projects.Remove(project);
+        SelectedProject = null;
+        ProjectStatus = $"Removed {project.Name}.";
     }
 
     /// <summary>
@@ -242,6 +597,8 @@ public partial class SettingsViewModel : ObservableObject
             var settings = await _settingsService.LoadSettingsAsync();
 
             // Provider Settings
+            OllamaBaseUrl = settings.Providers.OllamaBaseUrl;
+            OllamaContextWindow = settings.Providers.OllamaContextWindow;
             FreeTokenApiKey = settings.Providers.FreeTokenApiKey;
             FreeTokenBaseUrl = settings.Providers.FreeTokenBaseUrl;
             OpenRouterApiKey = settings.Providers.OpenRouterApiKey;
@@ -256,12 +613,33 @@ public partial class SettingsViewModel : ObservableObject
             WebSource = settings.Tools.WebSource;
             SafeSearch = settings.Tools.SafeSearch;
 
+            // Mode prompts
+            ChatModePrompt = settings.Modes.ChatPrompt;
+            CodingModePrompt = settings.Modes.CodingPrompt;
+            ScientificModePrompt = settings.Modes.ScientificPrompt;
+
             // Default Parameters
             DefaultTemperature = settings.Defaults.Temperature;
             DefaultMaxTokens = settings.Defaults.MaxTokens;
             DefaultTopP = settings.Defaults.TopP;
             DefaultProvider = settings.Defaults.DefaultProvider;
             DefaultModel = settings.Defaults.DefaultModel;
+
+            BuildAllowedRoots = string.Join(Environment.NewLine, settings.BuildTools.AllowedRoots);
+            BuildAllowTests = settings.BuildTools.AllowTests;
+            BuildAllowRun = settings.BuildTools.AllowRun;
+            BuildAllowCommit = settings.BuildTools.AllowCommit;
+            BuildTimeoutSeconds = settings.BuildTools.TimeoutSeconds;
+            BuildRunTimeoutSeconds = settings.BuildTools.RunTimeoutSeconds;
+            MaxToolIterations = settings.Tools.MaxToolIterations;
+            BuildDotnetPath = settings.BuildTools.DotnetPath;
+            BuildCMakePath = settings.BuildTools.CMakePath;
+            BuildMsBuildPath = settings.BuildTools.MsBuildPath;
+
+            AutoCompact = settings.Context.AutoCompact;
+            CompactThresholdPercent = settings.Context.CompactThresholdPercent;
+            KeepRecentMessages = settings.Context.KeepRecentMessages;
+            FallbackWindowTokens = settings.Context.FallbackWindowTokens;
 
             // UI Preferences
             Theme = settings.UI.Theme;
@@ -297,6 +675,11 @@ public partial class SettingsViewModel : ObservableObject
             // empty and destroy the user's MCP configuration on every save.
             var settings = _settingsService.GetCachedSettings();
 
+            settings.Providers.OllamaBaseUrl = OllamaBaseUrl;
+
+            // Negatives are meaningless to Ollama and would be sent verbatim;
+            // 0 is the "you decide" case and stays as it is.
+            settings.Providers.OllamaContextWindow = Math.Max(0, OllamaContextWindow);
             settings.Providers.FreeTokenApiKey = FreeTokenApiKey;
             settings.Providers.FreeTokenBaseUrl = FreeTokenBaseUrl;
             settings.Providers.OpenRouterApiKey = OpenRouterApiKey;
@@ -322,11 +705,49 @@ public partial class SettingsViewModel : ObservableObject
             settings.Tools.WebSource = WebSource;
             settings.Tools.SafeSearch = SafeSearch;
 
+            settings.Modes.ChatPrompt = ChatModePrompt;
+            settings.Modes.CodingPrompt = CodingModePrompt;
+            settings.Modes.ScientificPrompt = ScientificModePrompt;
+
             settings.Defaults.Temperature = DefaultTemperature;
             settings.Defaults.MaxTokens = DefaultMaxTokens;
             settings.Defaults.TopP = DefaultTopP;
             settings.Defaults.DefaultProvider = DefaultProvider;
             settings.Defaults.DefaultModel = DefaultModel;
+
+            // Clamped rather than trusted: these come from a text box, and a
+            // threshold of 0 would compact after every single message while a
+            // window of 0 would leave the meter with nothing to measure against.
+            // Blank lines and stray whitespace dropped: a trailing newline in the
+            // box would otherwise become an empty root, and an empty root would
+            // be a root that matches nothing while still switching the tools on.
+            settings.BuildTools.AllowedRoots = BuildAllowedRoots
+                .Split('\n')
+                .Select(line => line.Trim())
+                .Where(line => line.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            settings.BuildTools.AllowTests = BuildAllowTests;
+            settings.BuildTools.AllowRun = BuildAllowRun;
+            settings.BuildTools.AllowCommit = BuildAllowCommit;
+            settings.BuildTools.TimeoutSeconds = Math.Clamp(BuildTimeoutSeconds, 10, 3600);
+            settings.BuildTools.RunTimeoutSeconds = Math.Clamp(BuildRunTimeoutSeconds, 5, 3600);
+
+            // Clamped rather than trusted: zero would stop the model before it
+            // could call anything, and a very large number turns a model stuck
+            // in a loop into a very long, very expensive wait.
+            settings.Tools.MaxToolIterations = Math.Clamp(MaxToolIterations, 1, 100);
+            settings.BuildTools.DotnetPath = string.IsNullOrWhiteSpace(BuildDotnetPath)
+                ? "dotnet"
+                : BuildDotnetPath.Trim();
+            settings.BuildTools.CMakePath = BuildCMakePath.Trim();
+            settings.BuildTools.MsBuildPath = BuildMsBuildPath.Trim();
+
+            settings.Context.AutoCompact = AutoCompact;
+            settings.Context.CompactThresholdPercent = Math.Clamp(CompactThresholdPercent, 10, 100);
+            settings.Context.KeepRecentMessages = Math.Max(0, KeepRecentMessages);
+            settings.Context.FallbackWindowTokens = Math.Max(1024, FallbackWindowTokens);
 
             settings.UI.Theme = Theme;
             settings.UI.FontSize = FontSize;
@@ -375,6 +796,8 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    partial void OnOllamaBaseUrlChanged(string value) => HasUnsavedChanges = true;
+    partial void OnOllamaContextWindowChanged(int value) => HasUnsavedChanges = true;
     partial void OnFreeTokenApiKeyChanged(string value) => HasUnsavedChanges = true;
     partial void OnFreeTokenBaseUrlChanged(string value) => HasUnsavedChanges = true;
     partial void OnOpenRouterApiKeyChanged(string value) => HasUnsavedChanges = true;
@@ -387,11 +810,28 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnFallbackToCommonsChanged(bool value) => HasUnsavedChanges = true;
     partial void OnWebSourceChanged(string value) => HasUnsavedChanges = true;
     partial void OnSafeSearchChanged(bool value) => HasUnsavedChanges = true;
+    partial void OnChatModePromptChanged(string value) => HasUnsavedChanges = true;
+    partial void OnCodingModePromptChanged(string value) => HasUnsavedChanges = true;
+    partial void OnScientificModePromptChanged(string value) => HasUnsavedChanges = true;
     partial void OnDefaultTemperatureChanged(double value) => HasUnsavedChanges = true;
     partial void OnDefaultMaxTokensChanged(int value) => HasUnsavedChanges = true;
     partial void OnDefaultTopPChanged(double value) => HasUnsavedChanges = true;
     partial void OnDefaultProviderChanged(string value) => HasUnsavedChanges = true;
     partial void OnDefaultModelChanged(string value) => HasUnsavedChanges = true;
+    partial void OnBuildAllowedRootsChanged(string value) => HasUnsavedChanges = true;
+    partial void OnBuildAllowTestsChanged(bool value) => HasUnsavedChanges = true;
+    partial void OnBuildAllowRunChanged(bool value) => HasUnsavedChanges = true;
+    partial void OnBuildAllowCommitChanged(bool value) => HasUnsavedChanges = true;
+    partial void OnBuildRunTimeoutSecondsChanged(int value) => HasUnsavedChanges = true;
+    partial void OnMaxToolIterationsChanged(int value) => HasUnsavedChanges = true;
+    partial void OnBuildTimeoutSecondsChanged(int value) => HasUnsavedChanges = true;
+    partial void OnBuildDotnetPathChanged(string value) => HasUnsavedChanges = true;
+    partial void OnBuildCMakePathChanged(string value) => HasUnsavedChanges = true;
+    partial void OnBuildMsBuildPathChanged(string value) => HasUnsavedChanges = true;
+    partial void OnAutoCompactChanged(bool value) => HasUnsavedChanges = true;
+    partial void OnCompactThresholdPercentChanged(int value) => HasUnsavedChanges = true;
+    partial void OnKeepRecentMessagesChanged(int value) => HasUnsavedChanges = true;
+    partial void OnFallbackWindowTokensChanged(int value) => HasUnsavedChanges = true;
     partial void OnThemeChanged(string value) => HasUnsavedChanges = true;
     partial void OnFontSizeChanged(int value) => HasUnsavedChanges = true;
     partial void OnShowTimestampsChanged(bool value) => HasUnsavedChanges = true;

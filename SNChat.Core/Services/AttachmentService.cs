@@ -139,6 +139,9 @@ public class AttachmentService
 
         var sb = new StringBuilder();
 
+        var images = attachments.Count(a => a.Type == AttachmentType.Image);
+        var imageNumber = 0;
+
         foreach (var attachment in attachments)
         {
             if (!string.IsNullOrEmpty(attachment.ExtractedText))
@@ -157,7 +160,25 @@ public class AttachmentService
                 // The image itself is sent alongside the message for vision
                 // models, so this is only a label. It deliberately does not tell
                 // the model it cannot see the picture.
-                sb.AppendLine($"--- Attached image: {attachment.FileName} ---");
+                //
+                // The filename is deliberately left out. It was there until
+                // 2026-09-07, and a model given a filename-shaped string goes
+                // looking for it: read_media_file against the file server's own
+                // root, then image_search on the web, both failing, because the
+                // dropped file was copied into the conversation's folder, which
+                // is on nobody's allowed list. Saying "there is no file to open"
+                // was not enough - a small model reads the name and ignores the
+                // sentence. A name it never sees is a search it cannot start.
+                //
+                // The user still sees the real name in the attachment strip; it
+                // is only kept out of what the model is handed.
+                sb.AppendLine(images > 1
+                    ? $"--- Attached image {++imageNumber} of {images} ---"
+                    : "--- Attached image ---");
+
+                sb.AppendLine("It travels with this message rather than sitting in a folder, so " +
+                              "there is no file and no filename: never call a file, search or " +
+                              "image tool looking for it.");
             }
             else
             {

@@ -83,6 +83,31 @@
                                 <Setter Property="Margin" Value="10,5,10,5"/>
                                 <Setter Property="HorizontalAlignment" Value="Stretch"/>
                             </DataTrigger>
+
+                            <!-- A compaction summary spans the width, since it
+                                 stands for both sides of the exchange above it. -->
+                            <DataTrigger Binding="{Binding IsCompactionSummary}" Value="True">
+                                <Setter Property="Background" Value="#EDE7F6"/>
+                                <Setter Property="Margin" Value="10,5,10,5"/>
+                                <Setter Property="HorizontalAlignment" Value="Stretch"/>
+                            </DataTrigger>
+
+                            <!-- Folded away: still readable, but faded to show
+                                 it is no longer part of what the model is sent. -->
+                            <DataTrigger Binding="{Binding IsCompacted}" Value="True">
+                                <Setter Property="Opacity" Value="0.45"/>
+                            </DataTrigger>
+
+                            <!-- The nudge an unattended run sends itself. It has
+                                 to be a user turn for the model to answer it,
+                                 but it did not come from the user, so it must
+                                 not look like the rest of their messages. -->
+                            <DataTrigger Binding="{Binding IsAutoContinue}" Value="True">
+                                <Setter Property="Background" Value="#F3E5F5"/>
+                                <Setter Property="Margin" Value="50,5,10,5"/>
+                                <Setter Property="HorizontalAlignment" Value="Right"/>
+                                <Setter Property="Opacity" Value="0.7"/>
+                            </DataTrigger>
                         </Style.Triggers>
                         <Setter Property="Padding" Value="12"/>
                         <Setter Property="CornerRadius" Value="8"/>
@@ -90,13 +115,14 @@
                 </Border.Style>
 
                 <StackPanel>
-                    <TextBlock Text="{Binding Role}" FontSize="11" FontWeight="SemiBold" Opacity="0.7" Margin="0,0,0,4"/>
+                    <TextBlock Text="{Binding RoleLabel}" FontSize="11" FontWeight="SemiBold" Opacity="0.7" Margin="0,0,0,4"/>
                     <markdig:MarkdownViewer Markdown="{Binding Content}"
                                            FontSize="14"
                                            FontFamily="Segoe UI"
                                            Foreground="#333333"
                                            Background="Transparent"
-                                           behaviors:CodeBlockCopyBehavior.Enabled="True"/>
+                                           behaviors:CodeBlockCopyBehavior.Enabled="True"
+                                           behaviors:ImageContextMenuBehavior.Enabled="True"/>
 
                     <!-- Display attached images -->
                     <ItemsControl ItemsSource="{Binding Attachments}" Margin="0,8,0,0">
@@ -123,7 +149,7 @@
                                         </Style>
                                     </Border.Style>
                                     <StackPanel>
-                                        <Image Source="{Binding FilePath, Converter={StaticResource FilePathToUriConverter}}"
+                                        <Image Source="{Binding FilePath, Converter={StaticResource FilePathToImageConverter}}"
                                                MaxWidth="400"
                                                MaxHeight="400"
                                                Stretch="Uniform"
@@ -281,12 +307,41 @@
                                   VerticalAlignment="Center"
                                   IsEnabled="{Binding IsStreaming, Converter={StaticResource InverseBooleanConverter}}"/>
                     </StackPanel>
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0">
                         <TextBlock Text="Model:" VerticalAlignment="Center" Margin="0,0,5,0"/>
                         <ComboBox ItemsSource="{Binding AvailableModels}"
                                   SelectedItem="{Binding CurrentModel}"
                                   MinWidth="180"
                                   VerticalAlignment="Center"
+                                  IsEnabled="{Binding IsStreaming, Converter={StaticResource InverseBooleanConverter}}"/>
+                    </StackPanel>
+                    <!-- The folder this conversation works in. Also what decides
+                         which folder the build and run tools may touch. -->
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0">
+                        <TextBlock Text="Project:" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                        <ComboBox ItemsSource="{Binding AvailableProjects}"
+                                  SelectedItem="{Binding CurrentProject}"
+                                  DisplayMemberPath="Name"
+                                  MinWidth="130"
+                                  VerticalAlignment="Center"
+                                  ToolTip="The folder the assistant may build and run in, and how much it may do on its own. Manage these in Settings - Projects."
+                                  IsEnabled="{Binding IsStreaming, Converter={StaticResource InverseBooleanConverter}}"/>
+                        <TextBlock Text="{Binding ProjectSummary}"
+                                   FontSize="10"
+                                   Foreground="#777777"
+                                   VerticalAlignment="Center"
+                                   Margin="6,0,0,0"
+                                   Visibility="{Binding HasProject,
+                                                Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="Mode:" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                        <ComboBox ItemsSource="{Binding AvailableModes}"
+                                  SelectedItem="{Binding CurrentMode}"
+                                  MinWidth="100"
+                                  VerticalAlignment="Center"
+                                  ToolTip="The standing instruction sent with every message. Reword these in Settings - Modes."
                                   IsEnabled="{Binding IsStreaming, Converter={StaticResource InverseBooleanConverter}}"/>
                     </StackPanel>
                 </StackPanel>
@@ -455,6 +510,76 @@
                                   Margin="10,0,0,0"
                                   ToolTip="Enable tools like web search for the model"
                                   IsEnabled="{Binding IsStreaming, Converter={StaticResource InverseBooleanConverter}}"/>
+
+                        <!-- Where an automatic run has got to, or why it stopped.
+                             Shown beside the other status because a run that has
+                             stopped needs to say so as loudly as one in progress. -->
+                        <TextBlock Text="{Binding AgentStatus}"
+                                   FontSize="10"
+                                   FontWeight="SemiBold"
+                                   Foreground="#6A1B9A"
+                                   VerticalAlignment="Center"
+                                   Margin="10,0,0,0"
+                                   MaxWidth="320"
+                                   TextTrimming="CharacterEllipsis"
+                                   ToolTip="{Binding AgentStatus}"
+                                   Visibility="{Binding HasAgentStatus,
+                                                Converter={StaticResource BooleanToVisibilityConverter}}"/>
+
+                        <!-- How full the model's context window is. Unlike the
+                             cost beside it this is not cumulative: the history
+                             is resent whole each turn, so this is what the next
+                             request will occupy, and compacting brings it down. -->
+                        <StackPanel Orientation="Horizontal"
+                                    VerticalAlignment="Center"
+                                    Margin="12,0,0,0"
+                                    Visibility="{Binding HasContextUsage,
+                                                 Converter={StaticResource BooleanToVisibilityConverter}}"
+                                    ToolTip="How much of the model's context window the next message will use, including the whole history. At the threshold set in Settings - Context, the oldest messages are folded into a summary.">
+                            <TextBlock Text="Context"
+                                       FontSize="10"
+                                       Foreground="#999999"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,5,0"/>
+
+                            <ProgressBar Width="70"
+                                         Height="7"
+                                         Minimum="0"
+                                         Maximum="100"
+                                         Background="#E4E4E4"
+                                         BorderThickness="0"
+                                         VerticalAlignment="Center"
+                                         Value="{Binding ContextPercent, Mode=OneWay}">
+                                <ProgressBar.Style>
+                                    <Style TargetType="ProgressBar">
+                                        <Setter Property="Foreground" Value="#4CAF50"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding ContextLevel}" Value="Warning">
+                                                <Setter Property="Foreground" Value="#FB8C00"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding ContextLevel}" Value="Critical">
+                                                <Setter Property="Foreground" Value="#E53935"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </ProgressBar.Style>
+                            </ProgressBar>
+
+                            <TextBlock Text="{Binding ContextSummary}"
+                                       FontSize="10"
+                                       Foreground="#999999"
+                                       VerticalAlignment="Center"
+                                       Margin="5,0,0,0"/>
+
+                            <Button Content="Compact"
+                                    Command="{Binding CompactContextCommand}"
+                                    IsEnabled="{Binding CanCompact}"
+                                    FontSize="10"
+                                    Padding="6,1"
+                                    Margin="6,0,0,0"
+                                    Cursor="Hand"
+                                    ToolTip="Summarize the older messages now, instead of waiting for the threshold. They stay on screen, greyed out, but are no longer sent."/>
+                        </StackPanel>
 
                         <!-- Running cost of this conversation, across every
                              session it has been open in. -->

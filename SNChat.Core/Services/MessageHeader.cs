@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text.RegularExpressions;
 using SNChat.Core.Models;
 
@@ -61,6 +61,29 @@ public static class MessageHeader
 
         if (message.Cost.HasValue)
             fields.Add($"cost={message.Cost.Value.ToString(CultureInfo.InvariantCulture)}");
+
+        // Which side of a compaction this message is on. Recorded because
+        // otherwise reopening a conversation would put every folded message back
+        // into the prompt beside the summary that replaced it - undoing the
+        // compaction and double-counting it at the same time. Written only when
+        // true, so ordinary messages carry nothing extra.
+        // A tool exchange has to keep enough to rebuild the call it came from:
+        // an OpenAI-shaped API rejects a result whose id matches no call the
+        // assistant made.
+        if (!string.IsNullOrEmpty(message.ToolName))
+            fields.Add($"tool={message.ToolName}");
+
+        if (!string.IsNullOrEmpty(message.ToolCallId))
+            fields.Add($"call={message.ToolCallId}");
+
+        if (message.IsAutoContinue)
+            fields.Add("auto=true");
+
+        if (message.IsCompacted)
+            fields.Add("compacted=true");
+
+        if (message.IsCompactionSummary)
+            fields.Add("summary=true");
 
         return fields.Count == 0 ? line : $"{line} [{string.Join("; ", fields)}]";
     }
@@ -132,6 +155,21 @@ public static class MessageHeader
                     facts.Cost = decimal.TryParse(value, NumberStyles.Any,
                         CultureInfo.InvariantCulture, out var cost) ? cost : null;
                     break;
+                case "tool":
+                    facts.ToolName = value;
+                    break;
+                case "call":
+                    facts.ToolCallId = value;
+                    break;
+                case "auto":
+                    facts.IsAutoContinue = ParseBool(value);
+                    break;
+                case "compacted":
+                    facts.IsCompacted = ParseBool(value);
+                    break;
+                case "summary":
+                    facts.IsCompactionSummary = ParseBool(value);
+                    break;
             }
         }
 
@@ -141,6 +179,9 @@ public static class MessageHeader
             int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
                 ? parsed
                 : null;
+
+        static bool ParseBool(string value) =>
+            bool.TryParse(value, out var parsed) && parsed;
     }
 }
 
@@ -153,4 +194,19 @@ public class MessageFacts
     public int? CompletionTokens { get; set; }
     public int? ReasoningTokens { get; set; }
     public decimal? Cost { get; set; }
+
+    /// <summary>Which tool ran, on a tool exchange.</summary>
+    public string ToolName { get; set; } = string.Empty;
+
+    /// <summary>The id the model gave the call, where the provider uses one.</summary>
+    public string ToolCallId { get; set; } = string.Empty;
+
+    /// <summary>Sent by an unattended run to itself, not typed by the user.</summary>
+    public bool IsAutoContinue { get; set; }
+
+    /// <summary>Folded into a later summary, so no longer sent to the model.</summary>
+    public bool IsCompacted { get; set; }
+
+    /// <summary>The summary a compaction produced, which is sent in their place.</summary>
+    public bool IsCompactionSummary { get; set; }
 }
