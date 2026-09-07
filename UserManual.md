@@ -77,8 +77,17 @@ Not strictly required, but strongly recommended, and **required for unattended r
 (§5). git is what lets you undo everything the assistant did in one command. Without it,
 a bad run is yours to clean up by hand.
 
-If you have never used git: install it from [git-scm.com](https://git-scm.com), then in your
-project folder run
+If you have never used git: install it from [git-scm.com](https://git-scm.com) and tell it who
+you are, once, in any terminal:
+
+```
+git config --global user.email "you@example.com"
+git config --global user.name "Your Name"
+```
+
+That is all you need to do. When you first try to run unattended in a folder that is not yet
+a repository, **SNChat offers to set it up for you** — you do not have to run `git init`
+yourself. If you would rather do it by hand:
 
 ```
 git init
@@ -86,7 +95,7 @@ git add -A
 git commit -m "Before I let the assistant touch this"
 ```
 
-That single commit is your way back.
+Either way, that first commit is your way back.
 
 ---
 
@@ -267,6 +276,14 @@ your code stood before it touched anything.
 
 If any of those fail, you get a message saying so, and **your message is still answered
 once** — it just will not carry on by itself.
+
+**If the folder is not a repository yet, SNChat offers to set one up.** Say yes and it runs
+`git init` and commits everything already there as the point to return to — no need to leave
+the app. One warning it gives you and is worth heeding: if the folder holds build output or
+downloaded packages, those get committed too. Add a `.gitignore` first if that matters.
+
+The other two failures are not offered a fix, deliberately. Committing your work in progress
+under a message you did not write is not something to do on your behalf.
 
 This is deliberate. Uncommitted work mixed with the assistant's work cannot be separated
 afterwards; if it goes wrong you cannot undo its changes without also losing yours. So:
@@ -545,12 +562,27 @@ the file server's command line in `settings.json` to make it permanent.
 ### It refuses to work on its own
 
 Almost always the checkpoint. The folder must be a git repo with **nothing uncommitted**.
-Commit your work and try again. The message says which condition failed.
+The message says which condition failed.
+
+If it is not a repository yet, say yes when it offers to create one. If there is uncommitted
+work, commit it and try again.
+
+### "Stopped after too many tool calls"
+
+It used up its tool budget for a single reply. Raise **Settings → Defaults → Tool calls
+allowed per reply** — the default of 10 is generous for chat and tight for coding, where one
+reply may read, edit, build and re-run. 25–30 is reasonable.
+
+Before raising it a long way, read the log. A model burning that many rounds without
+answering is sometimes stuck rather than working, and a bigger budget just buys a longer wait.
+
+This is **not** the project's step limit, which counts whole replies during an unattended run.
+Raising that will not help here.
 
 ### It stopped early for no reason
 
 Check the step and minute limits for that project — the defaults are 25 and 30. Raise them,
-or split the task.
+or split the task. If the message mentioned tool calls, see above instead.
 
 ### It confidently did the wrong thing
 
@@ -603,16 +635,17 @@ assistant can read it too: ask *"check your log and tell me why that was refused
 
 ### Settings with no switch in the window
 
-Several things live only in `config\settings.json`, edited by hand with the app closed:
+One thing still lives only in `config\settings.json`, edited by hand with the app closed:
 
 | Setting | Effect |
 |---|---|
 | `Tools.McpServers` | **Which folders it may read and write** (§3), and the search server. There is no UI for this at all. |
-| `BuildTools.AllowRun` | Whether it may run programs. Default on. |
-| `BuildTools.AllowCommit` | Whether it may commit. Default on; turning it off means unattended runs stop to ask you. |
-| `BuildTools.RunTimeoutSeconds` | Seconds a program may run before it is stopped. Default 60. |
 
-Restart the app after editing this file — it is read once, at startup.
+Restart the app after editing it — the file is read once, at startup.
+
+Everything else has a switch now. In particular, *allow running programs*, *allow
+committing* and the per-program time limit are on **Settings → Build tools**, and *tool calls
+allowed per reply* is on **Settings → Defaults**.
 
 ---
 
