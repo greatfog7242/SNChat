@@ -149,7 +149,7 @@
                                         </Style>
                                     </Border.Style>
                                     <StackPanel>
-                                        <Image Source="{Binding FilePath, Converter={StaticResource FilePathToUriConverter}}"
+                                        <Image Source="{Binding FilePath, Converter={StaticResource FilePathToImageConverter}}"
                                                MaxWidth="400"
                                                MaxHeight="400"
                                                Stretch="Uniform"
