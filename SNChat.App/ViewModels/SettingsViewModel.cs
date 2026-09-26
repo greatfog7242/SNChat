@@ -203,6 +203,23 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private string _buildMsBuildPath = string.Empty;
 
+    // Windows system tools: the windows-system-mcp server, and how much of the
+    // machine the assistant may change rather than merely read.
+    [ObservableProperty]
+    private bool _windowsSystemEnabled;
+
+    [ObservableProperty]
+    private bool _windowsAllowProcessControl;
+
+    [ObservableProperty]
+    private bool _windowsAllowServiceControl;
+
+    [ObservableProperty]
+    private string _windowsSystemCommand = "npx";
+
+    [ObservableProperty]
+    private string _windowsSystemArguments = "-y windows-system-mcp";
+
     // Projects: the folders the assistant may work in, and how much it may do
     // unattended in each. Saved as they are edited rather than with the Save
     // button, because each one is its own file.
@@ -636,6 +653,12 @@ public partial class SettingsViewModel : ObservableObject
             BuildCMakePath = settings.BuildTools.CMakePath;
             BuildMsBuildPath = settings.BuildTools.MsBuildPath;
 
+            WindowsSystemEnabled = settings.WindowsSystem.Enabled;
+            WindowsAllowProcessControl = settings.WindowsSystem.AllowProcessControl;
+            WindowsAllowServiceControl = settings.WindowsSystem.AllowServiceControl;
+            WindowsSystemCommand = settings.WindowsSystem.Command;
+            WindowsSystemArguments = settings.WindowsSystem.Arguments;
+
             AutoCompact = settings.Context.AutoCompact;
             CompactThresholdPercent = settings.Context.CompactThresholdPercent;
             KeepRecentMessages = settings.Context.KeepRecentMessages;
@@ -744,6 +767,19 @@ public partial class SettingsViewModel : ObservableObject
             settings.BuildTools.CMakePath = BuildCMakePath.Trim();
             settings.BuildTools.MsBuildPath = BuildMsBuildPath.Trim();
 
+            settings.WindowsSystem.Enabled = WindowsSystemEnabled;
+            settings.WindowsSystem.AllowProcessControl = WindowsAllowProcessControl;
+            settings.WindowsSystem.AllowServiceControl = WindowsAllowServiceControl;
+
+            // An emptied Command box would save a server that cannot start, and
+            // the failure would surface a launch later as a line in the log.
+            // Blank means "the normal way", so put the normal way back.
+            settings.WindowsSystem.Command = string.IsNullOrWhiteSpace(WindowsSystemCommand)
+                ? "npx"
+                : WindowsSystemCommand.Trim();
+
+            settings.WindowsSystem.Arguments = WindowsSystemArguments.Trim();
+
             settings.Context.AutoCompact = AutoCompact;
             settings.Context.CompactThresholdPercent = Math.Clamp(CompactThresholdPercent, 10, 100);
             settings.Context.KeepRecentMessages = Math.Max(0, KeepRecentMessages);
@@ -828,6 +864,11 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnBuildDotnetPathChanged(string value) => HasUnsavedChanges = true;
     partial void OnBuildCMakePathChanged(string value) => HasUnsavedChanges = true;
     partial void OnBuildMsBuildPathChanged(string value) => HasUnsavedChanges = true;
+    partial void OnWindowsSystemEnabledChanged(bool value) => HasUnsavedChanges = true;
+    partial void OnWindowsAllowProcessControlChanged(bool value) => HasUnsavedChanges = true;
+    partial void OnWindowsAllowServiceControlChanged(bool value) => HasUnsavedChanges = true;
+    partial void OnWindowsSystemCommandChanged(string value) => HasUnsavedChanges = true;
+    partial void OnWindowsSystemArgumentsChanged(string value) => HasUnsavedChanges = true;
     partial void OnAutoCompactChanged(bool value) => HasUnsavedChanges = true;
     partial void OnCompactThresholdPercentChanged(int value) => HasUnsavedChanges = true;
     partial void OnKeepRecentMessagesChanged(int value) => HasUnsavedChanges = true;

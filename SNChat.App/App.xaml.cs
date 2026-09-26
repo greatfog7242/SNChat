@@ -132,6 +132,10 @@ public partial class App : Application
         services.AddSingleton<SessionAccessGrants>();
         services.AddSingleton<IAccessPrompt, Services.DialogAccessPrompt>();
 
+        // Agreeing to one act on the machine - ending a process, stopping a
+        // service. Asked per call and never remembered, unlike a folder grant.
+        services.AddSingleton<IActionPrompt, Services.DialogActionPrompt>();
+
         // Constructed by hand because it is part of a cycle: the tool needs the
         // registry to know what it may delegate, the registry factory registers
         // the tool, and the providers are built from the registry. Passing

@@ -725,6 +725,61 @@
                 </ScrollViewer>
             </TabItem>
 
+            <!-- Windows system: lets the model inspect and manage this machine -->
+            <TabItem Header="Windows system">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="20">
+                        <TextBlock Text="Windows System Tools" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="#666666" Margin="0,0,0,12"
+                                   Text="Lets the assistant look at this machine and answer questions about it - what is using the CPU, which services are running, how much disk is left, what starts up with Windows, why the network is misbehaving. It runs the windows-system-mcp server, which needs Node.js installed."/>
+
+                        <Border Background="#FFF3E0" BorderBrush="#FFB74D" BorderThickness="1"
+                                Padding="10" CornerRadius="4" Margin="0,0,0,15">
+                            <StackPanel>
+                                <TextBlock Text="What this can see" FontWeight="SemiBold" FontSize="12" Margin="0,0,0,4"/>
+                                <TextBlock TextWrapping="Wrap" FontSize="11"
+                                           Text="Everything about the machine: hardware, installed software, environment variables, the registry, network connections, and any file on any drive. Reading a file's contents still asks you about its folder first, the same as the file tools do, but directory listings and file sizes do not. Turn this off if that is more than you want to hand over."/>
+                            </StackPanel>
+                        </Border>
+
+                        <CheckBox Content="Let the assistant inspect this computer"
+                                  IsChecked="{Binding WindowsSystemEnabled}"
+                                  Margin="0,0,0,4"/>
+                        <TextBlock Text="Off by default. Everything it can do with this alone is read-only - reporting on the machine, never changing it. Takes effect after a restart."
+                                   FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="20,0,0,15"/>
+
+                        <CheckBox Content="Allow ending processes"
+                                  IsChecked="{Binding WindowsAllowProcessControl}"
+                                  IsEnabled="{Binding WindowsSystemEnabled}"
+                                  Margin="0,0,0,4"/>
+                        <TextBlock Text="Lets it close a program that is stuck or hogging the machine. Anything that program had not saved is lost, so you are asked to confirm each one, with the process named."
+                                   FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="20,0,0,15"/>
+
+                        <CheckBox Content="Allow starting and stopping Windows services"
+                                  IsChecked="{Binding WindowsAllowServiceControl}"
+                                  IsEnabled="{Binding WindowsSystemEnabled}"
+                                  Margin="0,0,0,4"/>
+                        <TextBlock Text="The riskiest switch here. Stopping the wrong service can take down a database, a VPN, or the machine's ability to log you in - and the damage lands somewhere other than whatever you asked about. Each one is confirmed with you, by name."
+                                   FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="20,0,0,15"/>
+
+                        <TextBlock Text="Command:" Margin="0,0,0,2"/>
+                        <TextBox Text="{Binding WindowsSystemCommand, UpdateSourceTrigger=PropertyChanged}"
+                                 Width="200"
+                                 HorizontalAlignment="Left"
+                                 Margin="0,0,0,4"/>
+
+                        <TextBlock Text="Arguments:" Margin="0,0,0,2"/>
+                        <TextBox Text="{Binding WindowsSystemArguments, UpdateSourceTrigger=PropertyChanged}"
+                                 Margin="0,0,0,4"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#666666" Margin="0,0,0,15"
+                                   Text="Leave these alone unless startup is slow. 'npx' fetches the server on every launch; if you have run 'npm install -g windows-system-mcp' you can put 'windows-system-mcp' in Command and clear Arguments to skip that."/>
+
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#999999"
+                                   Text="Asking it to scan another machine's ports is confirmed with you as well, whatever these switches say. Tools also have to be switched on in the chat toolbar before the assistant is offered any of this."/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
             <!-- Storage Settings Tab -->
             <TabItem Header="Storage">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">

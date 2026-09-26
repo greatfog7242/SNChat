@@ -708,6 +708,22 @@ There is deliberately no push, reset, checkout or clean. Its commits carry a mar
 | `task_complete` | How it says the job is finished |
 | `run_subagent` | Delegates a job (§8) |
 
+**This computer** — only if you switched them on under Settings → Windows system, which
+is off by default. Each takes an `action` saying which of its jobs to do
+
+| Tool | Does |
+|---|---|
+| `system_info` | Hardware, OS version, uptime, installed software, environment variables |
+| `performance` | CPU, memory, disk and network usage; what is using the most of each |
+| `process_manager` | Lists processes — and ends one, if you allowed that and say yes when asked |
+| `service_manager` | Lists Windows services — and starts or stops one, under the same two conditions |
+| `registry` | Reads the registry, including startup programs. Read-only; it cannot write |
+| `network` | Adapters, connections, listening ports, ping, traceroute, Wi-Fi profiles |
+| `filesystem` | Reads files and folders anywhere on the machine. Reading a file's *contents* still asks you about the folder first (§5b); listing one does not |
+
+Ending a process or moving a service needs both a switch in Settings **and** a yes to a
+dialog naming the exact process or service, every time. See `WINDOWS_MCP_INTEGRATION.md`.
+
 **Other**
 
 | Tool | Does |

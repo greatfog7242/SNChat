@@ -10,6 +10,58 @@ public class AppSettings
     public ModeSettings Modes { get; set; } = new();
     public ContextSettings Context { get; set; } = new();
     public BuildToolSettings BuildTools { get; set; } = new();
+    public WindowsSystemSettings WindowsSystem { get; set; } = new();
+}
+
+/// <summary>
+/// Lets the model inspect this Windows machine - processes, services, hardware,
+/// the registry, network state - through the windows-system-mcp server.
+///
+/// A settings section of its own rather than a hand-written
+/// <see cref="ToolSettings.McpServers"/> entry, because it is the one MCP server
+/// worth offering as a switch: the command never varies, and the things it can
+/// do to the machine deserve to be visible in Settings rather than buried in
+/// JSON. Configuring it by hand still works, and is still guarded - the checks
+/// key off tool names, not off this section.
+///
+/// Off by default. It needs Node.js, it spawns a process at every launch, and
+/// what it reports about the machine is worth opting into rather than
+/// discovering.
+/// </summary>
+public class WindowsSystemSettings
+{
+    /// <summary>Whether to launch the server at startup.</summary>
+    public bool Enabled { get; set; } = false;
+
+    /// <summary>
+    /// How the server is launched. Overridable so a globally installed
+    /// windows-system-mcp can be used directly, skipping the npx lookup that
+    /// otherwise costs a few seconds of every startup.
+    /// </summary>
+    public string Command { get; set; } = "npx";
+
+    public string Arguments { get; set; } = "-y windows-system-mcp";
+
+    /// <summary>
+    /// Whether the model may kill processes.
+    ///
+    /// Separate from reading them, and off by default, because the two are not
+    /// remotely the same act. Listing processes is a question; killing one
+    /// discards whatever that program had not yet saved, and there is no undo.
+    /// With this on the user is still asked before each kill - this switch
+    /// decides whether the question may be put at all.
+    /// </summary>
+    public bool AllowProcessControl { get; set; } = false;
+
+    /// <summary>
+    /// Whether the model may start, stop, and restart Windows services.
+    ///
+    /// Off by default for the same reason, only more so: stopping the wrong
+    /// service takes down a database, a VPN, or the machine's ability to log
+    /// anyone in, and the damage lands outside whatever the model was asked to
+    /// do. Each individual call is confirmed as well.
+    /// </summary>
+    public bool AllowServiceControl { get; set; } = false;
 }
 
 /// <summary>

@@ -446,7 +446,9 @@ and skipped — the others still load, and the app starts normally.
 ## Known Rough Edges
 
 - **The 🔎 checkbox is mislabelled.** It reads "Web search" but gates every tool.
-- **No UI for MCP.** Servers are configured by editing JSON by hand.
+- **Almost no UI for MCP.** Servers are configured by editing JSON by hand. The
+  one exception is the Windows system server, which has a switch under
+  Settings → Windows system.
 - **Restart required.** Config changes are not picked up while running.
 - **stdio only.** Remote MCP servers over HTTP/SSE are not supported yet.
 
@@ -454,6 +456,9 @@ and skipped — the others still load, and the app starts normally.
 
 ## Further Reading
 
+- `WINDOWS_MCP_INTEGRATION.md` — the one MCP server with a switch in Settings
+  instead of a JSON entry: Windows system tools, what they can reach, and what
+  SNChat makes them ask about first
 - `MCP_AND_SEARCH_RUNBOOK.md` — the running setup, its rough edges, and how to
   diagnose a failure; start here when something that worked stops working
 - `SNChat.MCP/README.md` — library overview

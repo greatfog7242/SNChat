@@ -3,6 +3,7 @@ using SNChat.Core.Models;
 using SNChat.Core.Services;
 using SNChat.Core.Tools;
 using SNChat.MCP;
+using SNChat.MCP.Protocol.Messages;
 
 namespace SNChat.App.Services;
 
@@ -17,6 +18,7 @@ public class McpService : IDisposable
     private readonly IToolRegistry _toolRegistry;
     private readonly SessionAccessGrants _grants;
     private readonly IAccessPrompt _accessPrompt;
+    private readonly IActionPrompt _actionPrompt;
     private readonly ILogger<McpService> _logger;
     private readonly List<McpServerConnection> _connections = new();
     private readonly List<(string ServerName, int ToolCount)> _serverInfo = new();
@@ -28,12 +30,14 @@ public class McpService : IDisposable
         IToolRegistry toolRegistry,
         SessionAccessGrants grants,
         IAccessPrompt accessPrompt,
+        IActionPrompt actionPrompt,
         ILogger<McpService> logger)
     {
         _settingsService = settingsService;
         _toolRegistry = toolRegistry;
         _grants = grants;
         _accessPrompt = accessPrompt;
+        _actionPrompt = actionPrompt;
         _logger = logger;
     }
 
@@ -45,6 +49,11 @@ public class McpService : IDisposable
     {
         var settings = _settingsService.GetCachedSettings();
         var mcpServers = settings.Tools.McpServers.Where(s => s.Enabled).ToList();
+
+        var windowsSystem = WindowsSystemServer(settings, mcpServers);
+
+        if (windowsSystem != null)
+            mcpServers.Add(windowsSystem);
 
         if (mcpServers.Count == 0)
         {
@@ -71,6 +80,51 @@ public class McpService : IDisposable
             _connections.Count, _serverInfo.Sum(s => s.ToolCount));
     }
 
+    /// <summary>
+    /// The windows-system-mcp server as a server config, when Settings asks for
+    /// it and it is not already configured by hand.
+    ///
+    /// Launching it twice would be worse than useless: the second copy's tools
+    /// all collide with the first's by name, so the registry would either reject
+    /// them or shadow them, and either way a whole Windows server process would
+    /// be running for nothing. Someone who wrote the entry themselves meant it,
+    /// so theirs is the one that wins.
+    /// </summary>
+    private McpServerConfig? WindowsSystemServer(AppSettings settings, List<McpServerConfig> configured)
+    {
+        if (!settings.WindowsSystem.Enabled)
+            return null;
+
+        if (configured.Any(s => s.Arguments.Contains("windows-system-mcp", StringComparison.OrdinalIgnoreCase)))
+        {
+            _logger.LogInformation(
+                "Windows system tools are on, but a windows-system-mcp server is already " +
+                "configured by hand; using that one");
+
+            return null;
+        }
+
+        return new McpServerConfig
+        {
+            Name = "Windows system",
+            Command = settings.WindowsSystem.Command,
+            Arguments = settings.WindowsSystem.Arguments,
+            Enabled = true
+        };
+    }
+
+    /// <summary>
+    /// The values a tool's "action" argument accepts, or nothing when it has no
+    /// such argument. Empty for every server but this one, which is what keeps
+    /// the map to windows-system-mcp's tools.
+    /// </summary>
+    private static IReadOnlyList<string> ActionsOf(McpTool tool) =>
+        tool.InputSchema.Properties != null
+        && tool.InputSchema.Properties.TryGetValue("action", out var action)
+        && action.Enum is { Count: > 0 }
+            ? action.Enum
+            : Array.Empty<string>();
+
     private async Task InitializeServerAsync(McpServerConfig config, CancellationToken cancellationToken)
     {
         _logger.LogInformation("Connecting to MCP server: {Name} ({Command} {Args})",
@@ -93,14 +147,42 @@ public class McpService : IDisposable
             _logger.LogInformation("Discovered {Count} tool(s) from {Server}",
                 tools.Count, config.Name);
 
+            // Which windows-system-mcp action lives on which of its tools, taken
+            // from what this server just said rather than a table written here,
+            // so a renamed action cannot leave the two disagreeing. Built before
+            // the loop because every tool's wrapper needs the whole map, not
+            // just its own part of it.
+            var actions = new WindowsSystemActions();
+
+            foreach (var mcpTool in tools.Where(t => WindowsSystemGuard.IsWindowsSystemTool(t.Name)))
+                actions.Add(mcpTool.Name, ActionsOf(mcpTool));
+
             // Register each tool
             var registeredCount = 0;
             foreach (var mcpTool in tools)
             {
                 try
                 {
-                    var adapter = new McpToolAdapter(
+                    ITool adapter = new McpToolAdapter(
                         connection, mcpTool, _grants, _accessPrompt, _logger);
+
+                    // windows-system-mcp bundles "list the services" and "stop
+                    // this service" into one tool, so what needs guarding is a
+                    // call rather than a tool. Applied by tool name, which means
+                    // a hand-written entry for the same server is guarded too.
+                    //
+                    // All seven are wrapped, not just the four that can stop to
+                    // ask: the other three still misname actions, and that needs
+                    // explaining wherever it happens.
+                    if (WindowsSystemGuard.IsWindowsSystemTool(mcpTool.Name))
+                    {
+                        adapter = new GuardedWindowsSystemTool(
+                            adapter, _settingsService, _grants, _accessPrompt, _actionPrompt,
+                            actions, _logger);
+
+                        _logger.LogDebug("Wrapped Windows system tool: {ToolName} (asks first: {Guards})",
+                            mcpTool.Name, WindowsSystemGuard.Guards(mcpTool.Name));
+                    }
 
                     _toolRegistry.Register(adapter);
                     registeredCount++;
