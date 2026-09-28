@@ -11,6 +11,7 @@ public class AppSettings
     public ContextSettings Context { get; set; } = new();
     public BuildToolSettings BuildTools { get; set; } = new();
     public WindowsSystemSettings WindowsSystem { get; set; } = new();
+    public BrowserSettings Browser { get; set; } = new();
 }
 
 /// <summary>
@@ -463,4 +464,75 @@ public class StorageSettings
     public string ConversationsPath { get; set; } = string.Empty; // Empty means use default
     public bool AutoSave { get; set; } = true;
     public int MaxConversationsToKeep { get; set; } = 1000;
+}
+
+/// <summary>
+/// Lets the model browse websites, inspect their DOM, console output, and network
+/// traffic through the chrome-devtools-mcp server.
+///
+/// Provides access to Chrome DevTools Protocol capabilities: screenshots,
+/// performance traces, network request inspection, console messages, and page
+/// navigation. The server is launched with an isolated profile by default to
+/// prevent access to authenticated sessions.
+///
+/// Off by default. It needs Node.js, spawns a Chrome instance at every launch,
+/// and network access is worth opting into rather than discovering.
+/// </summary>
+public class BrowserSettings
+{
+    /// <summary>Whether to launch the browser server at startup.</summary>
+    public bool Enabled { get; set; } = false;
+
+    /// <summary>
+    /// How the server is launched. Overridable so a globally installed
+    /// chrome-devtools-mcp can be used directly.
+    /// </summary>
+    public string Command { get; set; } = "npx";
+
+    /// <summary>
+    /// Arguments for launching the Chrome DevTools MCP server.
+    /// Default includes isolated profile, headless mode, and telemetry disabled.
+    /// </summary>
+    public string Arguments { get; set; } =
+        "-y chrome-devtools-mcp@latest --isolated --headless --no-usage-statistics --no-performance-crux";
+
+    /// <summary>
+    /// Whether to use an isolated Chrome profile (recommended).
+    ///
+    /// When true, Chrome runs with no access to your saved logins, cookies, or
+    /// browsing history. When false, Chrome can access authenticated sessions,
+    /// which means web content the model reads could potentially instruct it to
+    /// act as you on sites you're logged into. If disabled, a non-empty
+    /// AllowedDomains list is required.
+    /// </summary>
+    public bool UseIsolatedProfile { get; set; } = true;
+
+    /// <summary>
+    /// Domains the model may navigate to. Empty list means allow all and log;
+    /// non-empty list enforces the allowlist.
+    ///
+    /// Required to be non-empty when UseIsolatedProfile is false, to limit the
+    /// blast radius of authenticated browsing. Applies to navigate_page and
+    /// new_page tools.
+    /// </summary>
+    public List<string> AllowedDomains { get; set; } = new();
+
+    /// <summary>
+    /// Folders the browser's file-writing tools may save into - screenshots,
+    /// DOM snapshots, performance traces, Lighthouse reports, heap snapshots.
+    ///
+    /// The server enforces this itself: chrome-devtools-mcp refuses any file
+    /// path outside its configured workspace roots, and with none configured it
+    /// allows only the OS temp directory. That default is why "save a screenshot
+    /// to C:\somewhere" fails with "not within any of the configured workspace
+    /// roots" until a folder is named here.
+    ///
+    /// Empty - the default - leaves the server on the OS temp directory rather
+    /// than opening anything up. Each entry is passed as --workspace, so the
+    /// boundary is enforced by the server rather than only by SNChat.
+    ///
+    /// Relative paths never work regardless of this setting: the server resolves
+    /// them against its own working directory, not the user's.
+    /// </summary>
+    public List<string> WorkspaceRoots { get; set; } = new();
 }

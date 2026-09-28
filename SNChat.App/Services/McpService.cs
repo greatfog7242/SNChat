@@ -1,3 +1,4 @@
+using System.IO;
 using Microsoft.Extensions.Logging;
 using SNChat.Core.Models;
 using SNChat.Core.Services;
@@ -55,6 +56,11 @@ public class McpService : IDisposable
         if (windowsSystem != null)
             mcpServers.Add(windowsSystem);
 
+        var browser = BrowserServer(settings, mcpServers);
+
+        if (browser != null)
+            mcpServers.Add(browser);
+
         if (mcpServers.Count == 0)
         {
             _logger.LogInformation("No MCP servers configured");
@@ -109,6 +115,75 @@ public class McpService : IDisposable
             Name = "Windows system",
             Command = settings.WindowsSystem.Command,
             Arguments = settings.WindowsSystem.Arguments,
+            Enabled = true
+        };
+    }
+
+    /// <summary>
+    /// The chrome-devtools-mcp server as a server config, when Settings asks for
+    /// it and it is not already configured by hand.
+    ///
+    /// Same deduplication logic as Windows system: someone who configured it
+    /// manually gets their configuration, not this one.
+    /// </summary>
+    private McpServerConfig? BrowserServer(AppSettings settings, List<McpServerConfig> configured)
+    {
+        if (!settings.Browser.Enabled)
+            return null;
+
+        // Validate settings before launching
+        var validationError = BrowserGuard.ValidateSettings(settings.Browser);
+        if (validationError != null)
+        {
+            _logger.LogError("Browser settings invalid: {Error}", validationError);
+            return null;
+        }
+
+        if (configured.Any(s => s.Arguments.Contains("chrome-devtools-mcp", StringComparison.OrdinalIgnoreCase)))
+        {
+            _logger.LogInformation(
+                "Browser tools are on, but a chrome-devtools-mcp server is already " +
+                "configured by hand; using that one");
+
+            return null;
+        }
+
+        // Ensure --isolated flag is present when UseIsolatedProfile is true
+        var args = settings.Browser.Arguments;
+        if (settings.Browser.UseIsolatedProfile && !args.Contains("--isolated"))
+        {
+            args = $"{args} --isolated";
+        }
+        else if (!settings.Browser.UseIsolatedProfile && args.Contains("--isolated"))
+        {
+            args = args.Replace("--isolated", "").Trim();
+        }
+
+        // Where the file-writing tools may save. Without this the server allows
+        // only the OS temp directory, so every "save a screenshot to ..." is
+        // refused with a message that names no alternative.
+        foreach (var root in settings.Browser.WorkspaceRoots)
+        {
+            if (string.IsNullOrWhiteSpace(root))
+                continue;
+
+            var full = Path.GetFullPath(root.Trim());
+
+            if (!Directory.Exists(full))
+            {
+                _logger.LogWarning(
+                    "Browser workspace root {Root} does not exist; the browser will not be able " +
+                    "to save files there", full);
+            }
+
+            args = $"{args} --workspace \"{full}\"";
+        }
+
+        return new McpServerConfig
+        {
+            Name = "Chrome DevTools",
+            Command = settings.Browser.Command,
+            Arguments = args,
             Enabled = true
         };
     }
@@ -182,6 +257,29 @@ public class McpService : IDisposable
 
                         _logger.LogDebug("Wrapped Windows system tool: {ToolName} (asks first: {Guards})",
                             mcpTool.Name, WindowsSystemGuard.Guards(mcpTool.Name));
+                    }
+
+                    // chrome-devtools-mcp provides separate tools for each operation.
+                    // Only register allowed tools (observational + navigation), and
+                    // skip interaction and high-risk tools per user decision.
+                    //
+                    // Allowed tools are wrapped to enforce domain allowlist for
+                    // navigation and folder consent for file writes.
+                    if (BrowserGuard.IsBrowserTool(mcpTool.Name))
+                    {
+                        adapter = new GuardedBrowserTool(adapter, _settingsService, _logger);
+
+                        _logger.LogDebug("Wrapped browser tool: {ToolName} (domain check: {DomainCheck}, file write: {FileWrite})",
+                            mcpTool.Name,
+                            BrowserGuard.NeedsDomainCheck(mcpTool.Name),
+                            BrowserGuard.WritesFiles(mcpTool.Name));
+                    }
+                    else if (BrowserGuard.InteractionTools.Contains(mcpTool.Name) ||
+                             BrowserGuard.HighRiskTools.Contains(mcpTool.Name))
+                    {
+                        // Skip interaction and high-risk tools - they're not registered at all
+                        _logger.LogDebug("Skipping excluded browser tool: {ToolName}", mcpTool.Name);
+                        continue;
                     }
 
                     _toolRegistry.Register(adapter);
